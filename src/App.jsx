@@ -21,14 +21,16 @@ export default function App({ user, onLogout }) {
   // Expanded Row & Form States
   const [expandedRow, setExpandedRow] = useState(null)
   const [editingOrder, setEditingOrder] = useState(null)
+  const [deletingOrder, setDeletingOrder] = useState(null)
   const [isAddOrderOpen, setIsAddOrderOpen] = useState(false)
   const [newOrderData, setNewOrderData] = useState({})
 
+  // Custom App Notification Modal State
+  const [appAlert, setAppAlert] = useState({ isOpen: false, title: '', message: '', type: 'success' })
+  const [qrDeleteTarget, setQrDeleteTarget] = useState(null)
+
   // Payment QR State
-  const [paymentQRs, setPaymentQRs] = useState([
-    { id: 1, name: 'GCash', qrUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=GCash-SwordMaker' },
-    { id: 2, name: 'BDO Unibank', qrUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=BDO-SwordMaker' },
-  ])
+  const [paymentQRs, setPaymentQRs] = useState([])
   const [selectedQR, setSelectedQR] = useState(null)
   const [newBankName, setNewBankName] = useState('')
   const [newQRImage, setNewQRImage] = useState(null)
@@ -124,6 +126,34 @@ export default function App({ user, onLogout }) {
 
   const activeThemeObj = themeStyles[currentTheme] || themeStyles.default
 
+  const showAlert = (title, message, type = 'success') => {
+    setAppAlert({ isOpen: true, title, message, type })
+  }
+
+  // Text formatting helpers for proper case
+  const toTitleCase = (str) => {
+    if (!str) return ''
+    return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase())
+  }
+
+  const toSentenceCase = (str) => {
+    if (!str) return ''
+    const trimmed = str.trim()
+    return trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
+  }
+
+  const formatFieldValue = (key, value) => {
+    if (!value) return value
+    const k = key.toLowerCase()
+    if (k.includes('name') || k.includes('location') || k.includes('order')) {
+      return toTitleCase(value)
+    }
+    if (k.includes('notes')) {
+      return toSentenceCase(value)
+    }
+    return value
+  }
+
   // Dynamic Time-based Greeting
   useEffect(() => {
     const hour = new Date().getHours()
@@ -176,11 +206,11 @@ export default function App({ user, onLogout }) {
   const handleSaveResetPassword = async (e) => {
     e.preventDefault()
     if (resetNewPassword.length < 6) {
-      setResetMsg('Password must be at least 6 characters long.')
+      showAlert('Invalid Password', 'Password must be at least 6 characters long.', 'error')
       return
     }
     if (resetNewPassword !== resetConfirmPassword) {
-      setResetMsg('Passwords do not match.')
+      showAlert('Password Mismatch', 'Passwords do not match.', 'error')
       return
     }
 
@@ -191,9 +221,9 @@ export default function App({ user, onLogout }) {
     setResetLoading(false)
 
     if (error) {
-      setResetMsg(error.message)
+      showAlert('Update Failed', error.message, 'error')
     } else {
-      alert('Password successfully updated! Please log in with your new password.')
+      showAlert('Success', 'Password successfully updated! Please log in with your new password.', 'success')
       setIsPasswordResetMode(false)
       await supabase.auth.signOut()
       if (onLogout) onLogout()
@@ -232,7 +262,7 @@ export default function App({ user, onLogout }) {
             if (header.toLowerCase().includes('status') && val.toLowerCase() === 'inprogress') {
               val = 'In Progress'
             }
-            obj[header] = val
+            obj[header] = formatFieldValue(header, val)
           })
           return obj
         })
@@ -277,11 +307,9 @@ export default function App({ user, onLogout }) {
     }
 
     try {
-      // 1. Get the current user's email
       const { data: { user } } = await supabase.auth.getUser()
       if (!user || !user.email) throw new Error('No active user session found.')
 
-      // 2. Verify current password by attempting a test sign-in
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email: user.email,
         password: currentPassword,
@@ -292,7 +320,6 @@ export default function App({ user, onLogout }) {
         return
       }
 
-      // 3. If current password matches, proceed to update to the new password
       const { error: updateError } = await supabase.auth.updateUser({ password: newPassword })
       if (updateError) throw updateError
 
@@ -309,29 +336,27 @@ export default function App({ user, onLogout }) {
   const handleAddQR = (e) => {
     e.preventDefault()
     if (!newBankName || !newQRImage) {
-      alert('Please enter a bank name and select a QR image.')
+      showAlert('Missing Fields', 'Please enter a bank name and select a QR image.', 'error')
       return
     }
     const reader = new FileReader()
     reader.onload = (event) => {
       const newQR = {
         id: Date.now(),
-        name: newBankName,
+        name: toTitleCase(newBankName),
         qrUrl: event.target.result
       }
       setPaymentQRs([...paymentQRs, newQR])
       setNewBankName('')
       setNewQRImage(null)
-      alert('Payment QR added successfully!')
+      showAlert('Success', 'Payment QR added successfully!', 'success')
     }
     reader.readAsDataURL(newQRImage)
   }
 
   const handleDeleteQR = (id, e) => {
     e.stopPropagation()
-    if (window.confirm('Are you sure you want to remove this payment QR?')) {
-      setPaymentQRs(paymentQRs.filter(qr => qr.id !== id))
-    }
+    setQrDeleteTarget(id)
   }
 
   const navItems = [
@@ -368,7 +393,7 @@ export default function App({ user, onLogout }) {
     return sum + cleanNum
   }, 0)
 
-  // Bulletproof Operational Insights Calculation for October 2026
+  // Operational Insights Calculation
   const orderHeader = headers.find(h => h.toLowerCase().includes('order')) || headers[1] || 'ORDER'
   const dateHeaders = headers.filter(h => h.toLowerCase().includes('date') || h.toLowerCase().includes('ship'))
 
@@ -460,7 +485,6 @@ export default function App({ user, onLogout }) {
     }
   })
 
-  // Status badge styling helper
   const getStatusBadge = (statusText) => {
     const s = (statusText || '').trim().toLowerCase()
     if (s.includes('fully paid')) return 'bg-indigo-50 text-indigo-700 border-indigo-200'
@@ -508,19 +532,53 @@ export default function App({ user, onLogout }) {
     return 0
   })
 
+  // Exact Balance Formula Calculation
+  const calculateBalance = (obj) => {
+    const getVal = (predicate) => {
+      const foundKey = Object.keys(obj).find(k => predicate(k.toLowerCase()))
+      if (!foundKey) return 0
+      return parseFloat((obj[foundKey] || '').toString().replace(/[^0-9.]/g, '')) || 0
+    }
+
+    const price = getVal(k => k.includes('price') || k.includes('total') || (k.includes('amount') && !k.includes('shipping') && !k.includes('down') && !k.includes('payment'))) || 0
+    const shipping = getVal(k => k.includes('shipping')) || 0
+    const downpayment = getVal(k => k.includes('downpayment') || k.includes('down payment')) || 0
+    const payment = getVal(k => k.includes('payment') && !k.includes('down') && !k.includes('mode')) || 0
+
+    return (price + shipping) - (downpayment + payment)
+  }
+
   const handleSaveNewOrder = () => {
     const todayStr = new Date().toISOString().split('T')[0]
     const dateKey = headers.find(h => h.toLowerCase().includes('date')) || 'DATE ORDER'
+    const balanceKey = headers.find(h => h.toLowerCase().includes('balance'))
     
-    const newEntry = { id: orders.length, ...newOrderData }
+    // Ensure formatted text before saving
+    let formattedNewOrder = { ...newOrderData }
+    Object.keys(formattedNewOrder).forEach(k => {
+      formattedNewOrder[k] = formatFieldValue(k, formattedNewOrder[k])
+    })
+
+    let newEntry = { id: Date.now(), ...formattedNewOrder }
     if (!newEntry[dateKey]) {
       newEntry[dateKey] = todayStr
+    }
+
+    if (balanceKey) {
+      newEntry[balanceKey] = calculateBalance(newEntry).toFixed(2)
     }
 
     setOrders([newEntry, ...orders])
     setIsAddOrderOpen(false)
     setNewOrderData({})
-    alert('New order added successfully!')
+    showAlert('Success', 'New order added successfully!', 'success')
+  }
+
+  const handleDeleteOrder = (orderToDelete) => {
+    setOrders(orders.filter(o => o !== orderToDelete))
+    setDeletingOrder(null)
+    setExpandedRow(null)
+    showAlert('Deleted', 'Order successfully deleted.', 'success')
   }
 
   const nameHeader = headers.find(h => h.toLowerCase().includes('name')) || headers[0] || 'NAME'
@@ -531,7 +589,6 @@ export default function App({ user, onLogout }) {
     return k.includes('price') || k.includes('amount') || k.includes('downpayment') || (k.includes('payment') && !k.includes('mode')) || k.includes('balance')
   }
 
-  // Intercept view if user arrived via password recovery email link
   if (isPasswordResetMode) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 py-12">
@@ -581,7 +638,7 @@ export default function App({ user, onLogout }) {
             <button
               type="submit"
               disabled={resetLoading}
-              className="w-full rounded-xl bg-indigo-600 py-3 font-semibold text-white shadow-md transition hover:bg-indigo-700 disabled:opacity-50"
+              className={`w-full rounded-xl py-3 font-semibold text-white shadow-md transition ${activeThemeObj.primary} disabled:opacity-50`}
             >
               {resetLoading ? 'Updating...' : 'Update Password'}
             </button>
@@ -759,7 +816,7 @@ export default function App({ user, onLogout }) {
               ))}
             </div>
 
-            {/* Dynamic Operational Insights (Current Month) */}
+            {/* Operational Insights */}
             <div className="bg-white border border-slate-200/80 rounded-2xl p-4.5 shadow-sm space-y-2.5">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-100 pb-2">
                 Operational Insights
@@ -786,7 +843,6 @@ export default function App({ user, onLogout }) {
         {activeTab === 'customer-orders' && (
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-4">
             
-            {/* Header Toolbar */}
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 relative">
               <h3 className="text-base font-bold text-slate-900">Customer Orders</h3>
               
@@ -920,18 +976,34 @@ export default function App({ user, onLogout }) {
                           <div className="bg-slate-50 p-4 border-t border-slate-200/60 space-y-3 animate-fade-in">
                             <div className="flex items-center justify-between border-b border-slate-200 pb-2">
                               <span className={`text-xs font-bold ${activeThemeObj.textPrimary} uppercase tracking-wider`}>Complete Order Details</span>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setEditingOrder(row)
-                                }}
-                                className={`flex items-center gap-1 px-3 py-1 ${activeThemeObj.primary} text-white rounded-lg text-xs font-semibold shadow-sm transition`}
-                              >
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                </svg>
-                                <span>Edit Order</span>
-                              </button>
+                              
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setEditingOrder(row)
+                                  }}
+                                  className={`flex items-center gap-1 px-3 py-1 ${activeThemeObj.primary} text-white rounded-lg text-xs font-semibold shadow-sm transition`}
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                  </svg>
+                                  <span>Edit Order</span>
+                                </button>
+
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setDeletingOrder(row)
+                                  }}
+                                  className="flex items-center justify-center p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg border border-rose-200 transition shadow-sm"
+                                  title="Delete Order"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              </div>
                             </div>
 
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
@@ -1013,12 +1085,14 @@ export default function App({ user, onLogout }) {
                 <h3 className="text-base font-bold text-slate-900">Payment QR Codes</h3>
                 <p className="text-xs text-slate-500">Tap any QR card to show customers for quick scanning.</p>
               </div>
-              <button
-                onClick={() => setIsManagingQR(!isManagingQR)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${isManagingQR ? 'bg-slate-900 text-white border-slate-900' : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'}`}
-              >
-                {isManagingQR ? 'Done Managing' : 'Manage QR'}
-              </button>
+              {paymentQRs.length > 0 && (
+                <button
+                  onClick={() => setIsManagingQR(!isManagingQR)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${isManagingQR ? 'bg-slate-900 text-white border-slate-900' : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'}`}
+                >
+                  {isManagingQR ? 'Done Managing' : 'Manage QR'}
+                </button>
+              )}
             </div>
 
             <form onSubmit={handleAddQR} className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
@@ -1052,31 +1126,37 @@ export default function App({ user, onLogout }) {
               </button>
             </form>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-              {paymentQRs.map((qr) => (
-                <div
-                  key={qr.id}
-                  onClick={() => !isManagingQR && setSelectedQR(qr)}
-                  className={`relative bg-white border border-slate-200 rounded-xl p-4 flex flex-col items-center space-y-3 transition ${!isManagingQR ? 'cursor-pointer hover:border-indigo-400 hover:shadow-md active:scale-98' : ''}`}
-                >
-                  {isManagingQR && (
-                    <button
-                      onClick={(e) => handleDeleteQR(qr.id, e)}
-                      className="absolute top-2 right-2 bg-rose-500 text-white rounded-full p-1 shadow hover:bg-rose-600 transition"
-                      title="Remove QR"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  )}
-                  <div className="w-28 h-28 bg-slate-50 rounded-lg overflow-hidden flex items-center justify-center border border-slate-100 p-1">
-                    <img src={qr.qrUrl} alt={qr.name} className="w-full h-full object-contain" />
+            {paymentQRs.length === 0 ? (
+              <div className="py-12 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-xl">
+                No payment QR codes added yet. Use the form above to upload your first QR.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                {paymentQRs.map((qr) => (
+                  <div
+                    key={qr.id}
+                    onClick={() => !isManagingQR && setSelectedQR(qr)}
+                    className={`relative bg-white border border-slate-200 rounded-xl p-4 flex flex-col items-center space-y-3 transition ${!isManagingQR ? 'cursor-pointer hover:border-indigo-400 hover:shadow-md active:scale-98' : ''}`}
+                  >
+                    {isManagingQR && (
+                      <button
+                        onClick={(e) => handleDeleteQR(qr.id, e)}
+                        className="absolute top-2 right-2 bg-rose-500 text-white rounded-full p-1 shadow hover:bg-rose-600 transition"
+                        title="Remove QR"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    )}
+                    <div className="w-28 h-28 bg-slate-50 rounded-lg overflow-hidden flex items-center justify-center border border-slate-100 p-1">
+                      <img src={qr.qrUrl} alt={qr.name} className="w-full h-full object-contain" />
+                    </div>
+                    <span className="font-bold text-slate-900 text-xs text-center">{qr.name}</span>
                   </div>
-                  <span className="font-bold text-slate-900 text-xs text-center">{qr.name}</span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -1140,18 +1220,8 @@ export default function App({ user, onLogout }) {
                       type="button"
                       onClick={() => setShowCurrentPassword(!showCurrentPassword)}
                       className="absolute right-3 text-slate-400 hover:text-slate-600 transition focus:outline-none"
-                      title={showCurrentPassword ? 'Hide password' : 'Show password'}
                     >
-                      {showCurrentPassword ? (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                        </svg>
-                      ) : (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                        </svg>
-                      )}
+                      {showCurrentPassword ? 'Hide' : 'Show'}
                     </button>
                   </div>
                 </div>
@@ -1172,23 +1242,13 @@ export default function App({ user, onLogout }) {
                       type="button"
                       onClick={() => setShowNewPassword(!showNewPassword)}
                       className="absolute right-3 text-slate-400 hover:text-slate-600 transition focus:outline-none"
-                      title={showNewPassword ? 'Hide password' : 'Show password'}
                     >
-                      {showNewPassword ? (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                        </svg>
-                      ) : (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                        </svg>
-                      )}
+                      {showNewPassword ? 'Hide' : 'Show'}
                     </button>
                   </div>
                 </div>
 
-                {/* Confirm New Password Field + Real-Time Match Indicator */}
+                {/* Confirm New Password Field */}
                 <div>
                   <label className="block font-bold text-slate-600 uppercase text-[10px] mb-1">Confirm New Password</label>
                   <div className="relative flex items-center">
@@ -1204,32 +1264,17 @@ export default function App({ user, onLogout }) {
                       type="button"
                       onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                       className="absolute right-3 text-slate-400 hover:text-slate-600 transition focus:outline-none"
-                      title={showConfirmPassword ? 'Hide password' : 'Show password'}
                     >
-                      {showConfirmPassword ? (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                        </svg>
-                      ) : (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                        </svg>
-                      )}
+                      {showConfirmPassword ? 'Hide' : 'Show'}
                     </button>
                   </div>
 
-                  {/* Real-time Match Indicator Badge */}
                   {confirmPassword.length > 0 && (
                     <div className="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold">
                       {newPassword === confirmPassword ? (
-                        <span className="text-emerald-600 flex items-center gap-1">
-                          ✓ Passwords match
-                        </span>
+                        <span className="text-emerald-600">✓ Passwords match</span>
                       ) : (
-                        <span className="text-rose-600 flex items-center gap-1">
-                          ✕ Passwords do not match
-                        </span>
+                        <span className="text-rose-600">✕ Passwords do not match</span>
                       )}
                     </div>
                   )}
@@ -1247,6 +1292,107 @@ export default function App({ user, onLogout }) {
         )}
 
       </main>
+
+      {/* CUSTOM APP ALERT MODAL */}
+      {appAlert.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-2xl border border-slate-200 space-y-4 animate-fade-in text-center">
+            <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto border ${appAlert.type === 'error' ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
+              {appAlert.type === 'error' ? (
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              ) : (
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-900">{appAlert.title}</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                {appAlert.message}
+              </p>
+            </div>
+            <button
+              onClick={() => setAppAlert({ isOpen: false, title: '', message: '', type: 'success' })}
+              className={`w-full px-4 py-2.5 rounded-xl ${activeThemeObj.primary} text-white font-semibold text-xs shadow-md transition`}
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* QR DELETE CONFIRMATION MODAL */}
+      {qrDeleteTarget !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-2xl border border-slate-200 space-y-4 animate-fade-in text-center">
+            <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto border border-rose-100">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-900">Remove Payment QR</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Are you sure you want to remove this payment QR code?
+              </p>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setQrDeleteTarget(null)}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold text-xs transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setPaymentQRs(paymentQRs.filter(qr => qr.id !== qrDeleteTarget))
+                  setQrDeleteTarget(null)
+                  showAlert('Removed', 'Payment QR successfully removed.', 'success')
+                }}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs shadow-md transition"
+              >
+                Yes, Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE ORDER CONFIRMATION MODAL */}
+      {deletingOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-2xl border border-slate-200 space-y-4 animate-fade-in text-center">
+            <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto border border-rose-100">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-900">Delete Order</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Are you sure you want to delete this order permanently? This action cannot be undone.
+              </p>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setDeletingOrder(null)}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold text-xs transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteOrder(deletingOrder)}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs shadow-md transition"
+              >
+                Yes, Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* FULL SCREEN ENLARGED QR SCAN MODAL */}
       {selectedQR && (
@@ -1308,6 +1454,25 @@ export default function App({ user, onLogout }) {
                 let currentVal = editingOrder[key] || ''
                 if (lowerKey.includes('status') && currentVal.trim().toLowerCase() === 'inprogress') {
                   currentVal = 'In Progress'
+                }
+
+                if (lowerKey.includes('balance')) {
+                  const computedBalance = calculateBalance(editingOrder)
+                  editingOrder[key] = computedBalance.toFixed(2)
+                  return (
+                    <div key={idx} className="space-y-1">
+                      <label className="font-bold text-slate-600 uppercase text-[10px]">{key} (Auto-computed)</label>
+                      <div className="relative flex items-center">
+                        <span className="absolute left-3 text-slate-400 font-bold">₱</span>
+                        <input
+                          type="text"
+                          disabled
+                          value={computedBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 bg-slate-100 text-slate-500 font-semibold cursor-not-allowed"
+                        />
+                      </div>
+                    </div>
+                  )
                 }
 
                 if (lowerKey.includes('status')) {
@@ -1374,7 +1539,10 @@ export default function App({ user, onLogout }) {
                           defaultValue={cleanVal}
                           placeholder="0.00"
                           className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
-                          onChange={(e) => { editingOrder[key] = e.target.value }}
+                          onChange={(e) => {
+                            editingOrder[key] = e.target.value
+                            setEditingOrder({ ...editingOrder })
+                          }}
                         />
                       </div>
                     </div>
@@ -1402,7 +1570,10 @@ export default function App({ user, onLogout }) {
                       type="text"
                       defaultValue={currentVal}
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
-                      onChange={(e) => { editingOrder[key] = e.target.value }}
+                      onChange={(e) => {
+                        editingOrder[key] = formatFieldValue(key, e.target.value)
+                        setEditingOrder({ ...editingOrder })
+                      }}
                     />
                   </div>
                 )
@@ -1418,7 +1589,11 @@ export default function App({ user, onLogout }) {
               </button>
               <button
                 onClick={() => {
-                  alert('Order changes saved successfully!')
+                  const balanceKey = headers.find(h => h.toLowerCase().includes('balance'))
+                  if (balanceKey && editingOrder) {
+                    editingOrder[balanceKey] = calculateBalance(editingOrder).toFixed(2)
+                  }
+                  showAlert('Success', 'Order changes saved successfully!', 'success')
                   setEditingOrder(null)
                 }}
                 className={`px-4 py-2 ${activeThemeObj.primary} text-white font-semibold text-xs rounded-xl shadow-md transition`}
@@ -1443,13 +1618,31 @@ export default function App({ user, onLogout }) {
               {headers.map((key, idx) => {
                 const lowerKey = key.toLowerCase()
 
+                if (lowerKey.includes('balance')) {
+                  const computedBalance = calculateBalance(newOrderData)
+                  return (
+                    <div key={idx} className="space-y-1">
+                      <label className="font-bold text-slate-600 uppercase text-[10px]">{key} (Auto-computed)</label>
+                      <div className="relative flex items-center">
+                        <span className="absolute left-3 text-slate-400 font-bold">₱</span>
+                        <input
+                          type="text"
+                          disabled
+                          value={computedBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 bg-slate-100 text-slate-500 font-semibold cursor-not-allowed"
+                        />
+                      </div>
+                    </div>
+                  )
+                }
+
                 if (lowerKey.includes('status')) {
                   return (
                     <div key={idx} className="space-y-1">
                       <label className="font-bold text-slate-600 uppercase text-[10px]">{key}</label>
                       <select
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
-                        onChange={(e) => { newOrderData[key] = e.target.value }}
+                        onChange={(e) => { setNewOrderData({ ...newOrderData, [key]: e.target.value }) }}
                       >
                         <option value="">Select Status...</option>
                         {statusOptions.map((opt) => (
@@ -1466,7 +1659,7 @@ export default function App({ user, onLogout }) {
                       <label className="font-bold text-slate-600 uppercase text-[10px]">{key}</label>
                       <select
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
-                        onChange={(e) => { newOrderData[key] = e.target.value }}
+                        onChange={(e) => { setNewOrderData({ ...newOrderData, [key]: e.target.value }) }}
                       >
                         <option value="">Select...</option>
                         {shippingOptions.map((opt) => (
@@ -1483,7 +1676,7 @@ export default function App({ user, onLogout }) {
                       <label className="font-bold text-slate-600 uppercase text-[10px]">{key}</label>
                       <select
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
-                        onChange={(e) => { newOrderData[key] = e.target.value }}
+                        onChange={(e) => { setNewOrderData({ ...newOrderData, [key]: e.target.value }) }}
                       >
                         <option value="">Select Payment Mode...</option>
                         {paymentModeOptions.map((opt) => (
@@ -1505,7 +1698,14 @@ export default function App({ user, onLogout }) {
                           step="any"
                           placeholder="0.00"
                           className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
-                          onChange={(e) => { newOrderData[key] = e.target.value }}
+                          onChange={(e) => {
+                            const updated = { ...newOrderData, [key]: e.target.value }
+                            const balanceKey = headers.find(h => h.toLowerCase().includes('balance'))
+                            if (balanceKey) {
+                              updated[balanceKey] = calculateBalance(updated).toFixed(2)
+                            }
+                            setNewOrderData(updated)
+                          }}
                         />
                       </div>
                     </div>
@@ -1519,7 +1719,7 @@ export default function App({ user, onLogout }) {
                       <input
                         type="date"
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
-                        onChange={(e) => { newOrderData[key] = e.target.value }}
+                        onChange={(e) => { setNewOrderData({ ...newOrderData, [key]: e.target.value }) }}
                       />
                     </div>
                   )
@@ -1532,7 +1732,10 @@ export default function App({ user, onLogout }) {
                       type="text"
                       placeholder={`Enter ${key}...`}
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
-                      onChange={(e) => { newOrderData[key] = e.target.value }}
+                      onChange={(e) => {
+                        const formattedVal = formatFieldValue(key, e.target.value)
+                        setNewOrderData({ ...newOrderData, [key]: formattedVal })
+                      }}
                     />
                   </div>
                 )
