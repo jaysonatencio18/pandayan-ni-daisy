@@ -8,11 +8,14 @@ export default function Login({ onLoginSuccess }) {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
+  const [successMsg, setSuccessMsg] = useState('')
+  const [isForgotMode, setIsForgotMode] = useState(false)
 
   const handleLogin = async (e) => {
     e.preventDefault()
     setLoading(true)
     setErrorMsg('')
+    setSuccessMsg('')
 
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
@@ -25,6 +28,30 @@ export default function Login({ onLoginSuccess }) {
     } else {
       setLoading(false)
       onLoginSuccess(data.user)
+    }
+  }
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault()
+    if (!email) {
+      setErrorMsg('Please enter your email address first.')
+      return
+    }
+
+    setLoading(true)
+    setErrorMsg('')
+    setSuccessMsg('')
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + '/settings',
+    })
+
+    setLoading(false)
+
+    if (error) {
+      setErrorMsg(error.message)
+    } else {
+      setSuccessMsg('Password reset link has been sent to your registered email.')
     }
   }
 
@@ -55,43 +82,105 @@ export default function Login({ onLoginSuccess }) {
           </div>
         )}
 
-        <form onSubmit={handleLogin} className="space-y-5">
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">
-              Email Address
-            </label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-slate-800 placeholder-slate-400 transition focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-              placeholder="youremail@example.com"
-            />
+        {successMsg && (
+          <div className="mb-5 rounded-xl bg-emerald-50 p-3.5 text-center text-sm font-medium text-emerald-600 ring-1 ring-emerald-500/10">
+            {successMsg}
           </div>
+        )}
 
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">
-              Password
-            </label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-slate-800 placeholder-slate-400 transition focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-              placeholder="••••••••"
-            />
-          </div>
+        {!isForgotMode ? (
+          <form onSubmit={handleLogin} className="space-y-5">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">
+                Email Address
+              </label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-slate-800 placeholder-slate-400 transition focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                placeholder="youremail@example.com"
+              />
+            </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-xl bg-indigo-600 py-3 font-semibold text-white shadow-md shadow-indigo-500/20 transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-50"
-          >
-            {loading ? 'Signing in...' : 'Sign In'}
-          </button>
-        </form>
+            <div>
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsForgotMode(true)
+                    setErrorMsg('')
+                    setSuccessMsg('')
+                  }}
+                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+                >
+                  Forgot password?
+                </button>
+              </div>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-slate-800 placeholder-slate-400 transition focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                placeholder="••••••••"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-xl bg-indigo-600 py-3 font-semibold text-white shadow-md shadow-indigo-500/20 transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-50"
+            >
+              {loading ? 'Signing in...' : 'Sign In'}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleForgotPassword} className="space-y-5">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">
+                Registered Email Address
+              </label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-slate-800 placeholder-slate-400 transition focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                placeholder="youremail@example.com"
+              />
+              <p className="mt-1.5 text-xs text-slate-500">
+                We will send a reset link to this email address.
+              </p>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-xl bg-indigo-600 py-3 font-semibold text-white shadow-md shadow-indigo-500/20 transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-50"
+            >
+              {loading ? 'Sending Link...' : 'Send Reset Link'}
+            </button>
+
+            <div className="text-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsForgotMode(false)
+                  setErrorMsg('')
+                  setSuccessMsg('')
+                }}
+                className="text-xs font-semibold text-slate-600 hover:text-slate-800"
+              >
+                Back to Sign In
+              </button>
+            </div>
+          </form>
+        )}
 
         <div className="mt-8 border-t border-slate-100 pt-4 text-center">
           <p className="text-xs text-slate-400">
