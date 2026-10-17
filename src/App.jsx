@@ -1326,14 +1326,22 @@ export default function App({ user, onLogout }) {
                                 if (key.toLowerCase().includes('status') && val.trim().toLowerCase() === 'inprogress') {
                                   val = 'In Progress'
                                 }
+                                
+                                const lowerKey = key.toLowerCase()
                                 const isAmountField = isCurrencyField(key)
                                 let displayVal = val
-                                if (isAmountField) {
+
+                                // Dynamically compute balance if it's the balance field
+                                if (lowerKey.includes('balance')) {
+                                  const computedNum = calculateBalance(row)
+                                  displayVal = `₱ ${computedNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                } else if (isAmountField) {
                                   const num = parseFloat((val || '0').toString().replace(/[^0-9.]/g, '')) || 0
                                   displayVal = `₱ ${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                                 } else {
                                   displayVal = val || 'Not specified'
                                 }
+
                                 return (
                                   <div key={idx} className="bg-white p-2.5 rounded-xl border border-slate-200/80 shadow-2xs">
                                     <span className="block text-[10px] font-semibold text-slate-400 uppercase">{key}</span>
