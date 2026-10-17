@@ -31,8 +31,8 @@ export default function App({ user, onLogout }) {
 
   // Dynamic Theming State
   const [currentTheme, setCurrentTheme] = useState(() => {
-  return user?.user_metadata?.theme || 'default'
-})
+    return user?.user_metadata?.theme || 'default'
+  })
   const [pendingTheme, setPendingTheme] = useState(null)
 
   // Sync theme once user metadata finishes loading
@@ -48,8 +48,8 @@ export default function App({ user, onLogout }) {
   const [loadingOrders, setLoadingOrders] = useState(true)
   const [csvError, setCsvError] = useState('')
 
-  // Expanded Row & Form States
-  const [expandedRow, setExpandedRow] = useState(null)
+  // Expanded Row & Form States - NOW TRACKING BY ID FOR PERSISTENCE
+  const [expandedRowId, setExpandedRowId] = useState(null)
   const [editingOrder, setEditingOrder] = useState(null)
   const [deletingOrder, setDeletingOrder] = useState(null)
   const [isAddOrderOpen, setIsAddOrderOpen] = useState(false)
@@ -249,6 +249,7 @@ export default function App({ user, onLogout }) {
         const { data, error } = await supabase
           .from('customer-order-table')
           .select('*')
+          .order('id', { ascending: true })
 
         if (error) throw error
 
@@ -468,7 +469,7 @@ export default function App({ user, onLogout }) {
   }, 0)
 
   // Operational Insights Calculation
-  const orderHeader = headers.find(h => h.toLowerCase().includes('order')) || headers[1] || 'ORDER'
+  const orderHeader = headers.find(h => h.toLowerCase().includes('order')) || headers[1] || 'Order'
   const dateHeaders = headers.filter(h => h.toLowerCase().includes('date') || h.toLowerCase().includes('ship'))
 
   const productCountsCurrentMonth = {}
@@ -628,31 +629,44 @@ export default function App({ user, onLogout }) {
     return (price + shipping) - (downpayment + payment)
   }
 
+  const isCurrencyField = (keyName) => {
+    const k = keyName.toLowerCase()
+    return k.includes('price') || k.includes('amount') || k.includes('downpayment') || (k.includes('payment') && !k.includes('mode')) || k.includes('balance')
+  }
+
   const handleSaveNewOrder = async () => {
     const todayStr = new Date().toISOString().split('T')[0]
-    const dateKey = headers.find(h => h.toLowerCase().includes('date')) || 'DATE ORDER'
+    const dateKey = headers.find(h => h.toLowerCase().includes('date')) || 'Date Order'
     const balanceKey = headers.find(h => h.toLowerCase().includes('balance'))
     
     let formattedNewOrder = { ...newOrderData }
     
-    // Remove id from new order payload so Supabase auto-generates it
+    // Remove id, created_at, and balance from payload
     delete formattedNewOrder.id
+    delete formattedNewOrder.created_at
+    if (balanceKey) delete formattedNewOrder[balanceKey]
 
-    Object.keys(formattedNewOrder).forEach(k => {
-      formattedNewOrder[k] = formatFieldValue(k, formattedNewOrder[k])
+    const insertPayload = {}
+    Object.keys(formattedNewOrder).forEach(key => {
+      const lower = key.toLowerCase()
+      if (!lower.includes('balance')) {
+        let val = formattedNewOrder[key]
+        if ((lower.includes('date') || isCurrencyField(key)) && (val === '' || val === undefined || val === null)) {
+          val = null
+        } else if (isCurrencyField(key) && val !== null && val !== undefined && val !== '') {
+          val = parseFloat(val) || null
+        }
+        insertPayload[key] = formatFieldValue(key, val)
+      }
     })
 
-    if (!formattedNewOrder[dateKey]) {
-      formattedNewOrder[dateKey] = todayStr
-    }
-
-    if (balanceKey) {
-      formattedNewOrder[balanceKey] = calculateBalance(formattedNewOrder).toFixed(2)
+    if (!insertPayload[dateKey]) {
+      insertPayload[dateKey] = todayStr
     }
 
     const { data, error } = await supabase
       .from('customer-order-table')
-      .insert([formattedNewOrder])
+      .insert([insertPayload])
       .select()
 
     if (error) {
@@ -673,6 +687,7 @@ export default function App({ user, onLogout }) {
       setOrders([newObj, ...orders])
       setIsAddOrderOpen(false)
       setNewOrderData({})
+      setExpandedRowId(rowId)
       showAlert('Success', 'New order added successfully!', 'success')
     }
   }
@@ -690,18 +705,13 @@ export default function App({ user, onLogout }) {
     } else {
       setOrders(orders.filter(o => o.id !== rowId))
       setDeletingOrder(null)
-      setExpandedRow(null)
+      setExpandedRowId(null)
       showAlert('Deleted', 'Order successfully deleted.', 'success')
     }
   }
 
-  const nameHeader = headers.find(h => h.toLowerCase().includes('name')) || headers[0] || 'NAME'
-  const dateHeader = headers.find(h => h.toLowerCase().includes('date')) || headers[2] || 'DATE ORDER'
-
-  const isCurrencyField = (keyName) => {
-    const k = keyName.toLowerCase()
-    return k.includes('price') || k.includes('amount') || k.includes('downpayment') || (k.includes('payment') && !k.includes('mode')) || k.includes('balance')
-  }
+  const nameHeader = headers.find(h => h.toLowerCase().includes('name')) || headers[0] || 'Name'
+  const dateHeader = headers.find(h => h.toLowerCase().includes('date')) || headers[2] || 'Date Order'
 
   if (isPasswordResetMode) {
     return (
@@ -1049,8 +1059,8 @@ export default function App({ user, onLogout }) {
                 </div>
 
                 <div className="max-h-[550px] overflow-y-auto">
-                  {sortedOrders.map((row, i) => {
-                    const isExpanded = expandedRow === i
+                  {sortedOrders.map((row) => {
+                    const isExpanded = expandedRowId === row.id
                     const statusKey = headers.find(h => h.toLowerCase().includes('status'))
 
                     let statusVal = statusKey ? row[statusKey] : 'Pending'
@@ -1061,9 +1071,9 @@ export default function App({ user, onLogout }) {
                     const dateVal = row[dateHeader] || 'Not specified'
 
                     return (
-                      <div key={i} className="border-b border-slate-100 last:border-0">
+                      <div key={row.id} className="border-b border-slate-100 last:border-0">
                         <div
-                          onClick={() => setExpandedRow(isExpanded ? null : i)}
+                          onClick={() => setExpandedRowId(isExpanded ? null : row.id)}
                           className="grid grid-cols-3 gap-2 p-3.5 items-center hover:bg-slate-50 cursor-pointer transition"
                         >
                           <div className="font-bold text-slate-900 text-xs sm:text-sm truncate">
@@ -1566,7 +1576,7 @@ export default function App({ user, onLogout }) {
             <div className="space-y-3 text-xs">
               {headers.map((key, idx) => {
                 const lowerKey = key.toLowerCase()
-                let currentVal = editingOrder[key] || ''
+                let currentVal = editingOrder[key] !== undefined && editingOrder[key] !== null ? editingOrder[key] : ''
                 if (lowerKey.includes('status') && currentVal.trim().toLowerCase() === 'inprogress') {
                   currentVal = 'In Progress'
                 }
@@ -1595,13 +1605,13 @@ export default function App({ user, onLogout }) {
                     <div key={idx} className="space-y-1">
                       <label className="font-bold text-slate-600 uppercase text-[10px]">{key}</label>
                       <select
-                        defaultValue={currentVal}
+                        value={currentVal}
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
                         onChange={(e) => { 
-                          editingOrder[key] = e.target.value 
-                          setEditingOrder({ ...editingOrder })
+                          setEditingOrder({ ...editingOrder, [key]: e.target.value })
                         }}
                       >
+                        <option value="">Select Status...</option>
                         {statusOptions.map((opt) => (
                           <option key={opt} value={opt}>{opt}</option>
                         ))}
@@ -1615,10 +1625,13 @@ export default function App({ user, onLogout }) {
                     <div key={idx} className="space-y-1">
                       <label className="font-bold text-slate-600 uppercase text-[10px]">{key}</label>
                       <select
-                        defaultValue={currentVal}
+                        value={currentVal}
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
-                        onChange={(e) => { editingOrder[key] = e.target.value }}
+                        onChange={(e) => { 
+                          setEditingOrder({ ...editingOrder, [key]: e.target.value })
+                        }}
                       >
+                        <option value="">Select...</option>
                         {shippingOptions.map((opt) => (
                           <option key={opt} value={opt}>{opt}</option>
                         ))}
@@ -1632,10 +1645,13 @@ export default function App({ user, onLogout }) {
                     <div key={idx} className="space-y-1">
                       <label className="font-bold text-slate-600 uppercase text-[10px]">{key}</label>
                       <select
-                        defaultValue={currentVal}
+                        value={currentVal}
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
-                        onChange={(e) => { editingOrder[key] = e.target.value }}
+                        onChange={(e) => { 
+                          setEditingOrder({ ...editingOrder, [key]: e.target.value })
+                        }}
                       >
+                        <option value="">Select Payment Mode...</option>
                         {paymentModeOptions.map((opt) => (
                           <option key={opt} value={opt}>{opt}</option>
                         ))}
@@ -1654,12 +1670,11 @@ export default function App({ user, onLogout }) {
                         <input
                           type="number"
                           step="any"
-                          defaultValue={cleanVal}
+                          value={cleanVal}
                           placeholder="0.00"
                           className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
                           onChange={(e) => {
-                            editingOrder[key] = e.target.value
-                            setEditingOrder({ ...editingOrder })
+                            setEditingOrder({ ...editingOrder, [key]: e.target.value })
                           }}
                         />
                       </div>
@@ -1673,9 +1688,11 @@ export default function App({ user, onLogout }) {
                       <label className="font-bold text-slate-600 uppercase text-[10px]">{key}</label>
                       <input
                         type="date"
-                        defaultValue={currentVal}
+                        value={currentVal}
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
-                        onChange={(e) => { editingOrder[key] = e.target.value }}
+                        onChange={(e) => { 
+                          setEditingOrder({ ...editingOrder, [key]: e.target.value }) 
+                        }}
                       />
                     </div>
                   )
@@ -1686,11 +1703,12 @@ export default function App({ user, onLogout }) {
                     <label className="font-bold text-slate-600 uppercase text-[10px]">{key}</label>
                     <input
                       type="text"
-                      defaultValue={currentVal}
+                      value={currentVal}
+                      placeholder={`Enter ${key}...`}
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
                       onChange={(e) => {
-                        editingOrder[key] = formatFieldValue(key, e.target.value)
-                        setEditingOrder({ ...editingOrder })
+                        const formattedVal = formatFieldValue(key, e.target.value)
+                        setEditingOrder({ ...editingOrder, [key]: formattedVal })
                       }}
                     />
                   </div>
@@ -1710,15 +1728,22 @@ export default function App({ user, onLogout }) {
                 type="button"
                 onClick={async () => {
                   try {
-                    const balanceKey = headers.find(h => h.toLowerCase().includes('balance'))
-                    if (balanceKey && editingOrder) {
-                      editingOrder[balanceKey] = calculateBalance(editingOrder).toFixed(2)
-                    }
-
                     const rowId = editingOrder.id
 
-                    const payload = { ...editingOrder }
-                    delete payload.id
+                    // Build clean payload using exact original keys matching Supabase column names
+                    const payload = {}
+                    Object.keys(editingOrder).forEach(key => {
+                      const lower = key.toLowerCase()
+                      if (key !== 'id' && key !== 'created_at' && !lower.includes('balance')) {
+                        let val = editingOrder[key]
+                        if ((lower.includes('date') || isCurrencyField(key)) && (val === '' || val === undefined || val === null)) {
+                          val = null
+                        } else if (isCurrencyField(key) && val !== null && val !== undefined && val !== '') {
+                          val = parseFloat(val) || null
+                        }
+                        payload[key] = val
+                      }
+                    })
 
                     const { error } = await supabase
                       .from('customer-order-table')
@@ -1730,8 +1755,12 @@ export default function App({ user, onLogout }) {
                     showAlert('Success', 'Order changes saved successfully!', 'success')
                     setEditingOrder(null)
 
-                    // Refresh orders list
-                    const { data, error: fetchError } = await supabase.from('customer-order-table').select('*')
+                    // Refresh orders list keeping consistent sort order
+                    const { data, error: fetchError } = await supabase
+                      .from('customer-order-table')
+                      .select('*')
+                      .order('id', { ascending: true })
+
                     if (!fetchError && data) {
                       setOrders(data.map(item => {
                         let obj = { id: item.id }
@@ -1744,6 +1773,8 @@ export default function App({ user, onLogout }) {
                         })
                         return obj
                       }))
+                      // Keep Jepoy Sarcena (the edited row) open after save
+                      setExpandedRowId(rowId)
                     }
                   } catch (err) {
                     console.error('Update error:', err)
