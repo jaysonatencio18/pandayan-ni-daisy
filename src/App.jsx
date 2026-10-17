@@ -8,6 +8,27 @@ export default function App({ user, onLogout }) {
   const [greeting, setGreeting] = useState('Good day')
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   
+  // Extract user display name from Supabase user metadata
+  const getUserDisplayName = () => {
+    if (!user) return 'User'
+    
+    // Check Supabase user_metadata for display_name or full_name
+    const metadata = user.user_metadata || {}
+    if (metadata.display_name) return metadata.display_name
+    if (metadata.full_name) return metadata.full_name
+    if (metadata.name) return metadata.name
+    
+    // Fallback to email username if display name is missing
+    if (user.email) {
+      const emailPrefix = user.email.split('@')[0]
+      return emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1)
+    }
+    
+    return 'User'
+  }
+
+  const displayName = getUserDisplayName()
+
   // Dynamic Theming State
   const [currentTheme, setCurrentTheme] = useState('default')
   const [pendingTheme, setPendingTheme] = useState(null)
@@ -173,26 +194,6 @@ export default function App({ user, onLogout }) {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Robust CSV Parser
-  const parseCSVLine = (text) => {
-    let result = [];
-    let entry = "";
-    let inQuotes = false;
-    for (let i = 0; i < text.length; i++) {
-      let char = text[i];
-      if (char === '"') {
-        inQuotes = !inQuotes;
-      } else if (char === ',' && !inQuotes) {
-        result.push(entry.trim().replace(/^"|"$/g, ''));
-        entry = "";
-      } else {
-        entry += char;
-      }
-    }
-    result.push(entry.trim().replace(/^"|"$/g, ''));
-    return result;
-  }
-
   // Listen for Supabase password recovery event
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event) => {
@@ -230,48 +231,41 @@ export default function App({ user, onLogout }) {
     }
   }
 
-  // Fetch CSV from Public Folder on Load
+  // FETCH LIVE DATA FROM SUPABASE TABLE (customer-order-table)
   useEffect(() => {
     async function fetchCustomerOrders() {
       try {
-        const response = await fetch('/Customer Orders Data - unclean.csv')
-        if (!response.ok) {
-          throw new Error('CSV file not found in public folder.')
-        }
-        const text = await response.text()
-        
-        if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
-          throw new Error('Received HTML instead of CSV.')
-        }
+        setLoadingOrders(true)
+        const { data, error } = await supabase
+          .from('customer-order-table')
+          .select('*')
 
-        const lines = text.split(/\r\n|\n/).filter(line => line.trim() !== '')
-        if (lines.length === 0) {
-          setOrders([])
-          setLoadingOrders(false)
-          return
-        }
+        if (error) throw error
 
-        const parsedHeaders = parseCSVLine(lines[0]).filter(h => h && h.trim() !== '')
-        setHeaders(parsedHeaders)
-        
-        const parsedData = lines.slice(1).map((line, index) => {
-          const values = parseCSVLine(line)
-          let obj = { id: index }
-          parsedHeaders.forEach((header, i) => {
-            let val = values[i] || ''
-            if (header.toLowerCase().includes('status') && val.toLowerCase() === 'inprogress') {
-              val = 'In Progress'
-            }
-            obj[header] = formatFieldValue(header, val)
+        if (data && data.length > 0) {
+          const keys = Object.keys(data[0]).filter(k => k !== 'id' && k !== 'created_at')
+          setHeaders(keys)
+
+          const formattedData = data.map(item => {
+            let obj = { id: item.id }
+            keys.forEach(key => {
+              let val = item[key] || ''
+              if (key.toLowerCase().includes('status') && val.toLowerCase() === 'inprogress') {
+                val = 'In Progress'
+              }
+              obj[key] = formatFieldValue(key, val)
+            })
+            return obj
           })
-          return obj
-        })
 
-        setOrders(parsedData)
+          setOrders(formattedData)
+        } else {
+          setOrders([])
+        }
         setLoadingOrders(false)
       } catch (err) {
-        console.error('Error loading CSV:', err)
-        setCsvError('Could not load CSV from public folder. Please check file name.')
+        console.error('Error fetching customer orders from Supabase:', err)
+        setCsvError('Could not load orders from Supabase database.')
         setLoadingOrders(false)
       }
     }
@@ -307,11 +301,11 @@ export default function App({ user, onLogout }) {
     }
 
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user || !user.email) throw new Error('No active user session found.')
+      const { data: { user: currentUser } } = await supabase.auth.getUser()
+      if (!currentUser || !currentUser.email) throw new Error('No active user session found.')
 
       const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: user.email,
+        email: currentUser.email,
         password: currentPassword,
       })
 
@@ -389,7 +383,7 @@ export default function App({ user, onLogout }) {
   // Total Sales Calculation
   const totalSalesAmount = orders.reduce((sum, o) => {
     const priceVal = Object.entries(o).find(([k]) => k.toLowerCase().includes('total') || k.toLowerCase().includes('price') || k.toLowerCase().includes('amount'))?.[1] || '0'
-    const cleanNum = parseFloat(priceVal.replace(/[^0-9.]/g, '')) || 0
+    const cleanNum = parseFloat(priceVal.toString().replace(/[^0-9.]/g, '')) || 0
     return sum + cleanNum
   }, 0)
 
@@ -548,37 +542,53 @@ export default function App({ user, onLogout }) {
     return (price + shipping) - (downpayment + payment)
   }
 
-  const handleSaveNewOrder = () => {
+  const handleSaveNewOrder = async () => {
     const todayStr = new Date().toISOString().split('T')[0]
     const dateKey = headers.find(h => h.toLowerCase().includes('date')) || 'DATE ORDER'
     const balanceKey = headers.find(h => h.toLowerCase().includes('balance'))
     
-    // Ensure formatted text before saving
     let formattedNewOrder = { ...newOrderData }
     Object.keys(formattedNewOrder).forEach(k => {
       formattedNewOrder[k] = formatFieldValue(k, formattedNewOrder[k])
     })
 
-    let newEntry = { id: Date.now(), ...formattedNewOrder }
-    if (!newEntry[dateKey]) {
-      newEntry[dateKey] = todayStr
+    if (!formattedNewOrder[dateKey]) {
+      formattedNewOrder[dateKey] = todayStr
     }
 
     if (balanceKey) {
-      newEntry[balanceKey] = calculateBalance(newEntry).toFixed(2)
+      formattedNewOrder[balanceKey] = calculateBalance(formattedNewOrder).toFixed(2)
     }
 
-    setOrders([newEntry, ...orders])
-    setIsAddOrderOpen(false)
-    setNewOrderData({})
-    showAlert('Success', 'New order added successfully!', 'success')
+    const { data, error } = await supabase
+      .from('customer-order-table')
+      .insert([formattedNewOrder])
+      .select()
+
+    if (error) {
+      showAlert('Error', 'Failed to save new order to database.', 'error')
+    } else if (data) {
+      setOrders([data[0], ...orders])
+      setIsAddOrderOpen(false)
+      setNewOrderData({})
+      showAlert('Success', 'New order added successfully!', 'success')
+    }
   }
 
-  const handleDeleteOrder = (orderToDelete) => {
-    setOrders(orders.filter(o => o !== orderToDelete))
-    setDeletingOrder(null)
-    setExpandedRow(null)
-    showAlert('Deleted', 'Order successfully deleted.', 'success')
+  const handleDeleteOrder = async (orderToDelete) => {
+    const { error } = await supabase
+      .from('customer-order-table')
+      .delete()
+      .eq('id', orderToDelete.id)
+
+    if (error) {
+      showAlert('Error', 'Failed to delete order.', 'error')
+    } else {
+      setOrders(orders.filter(o => o.id !== orderToDelete.id))
+      setDeletingOrder(null)
+      setExpandedRow(null)
+      showAlert('Deleted', 'Order successfully deleted.', 'success')
+    }
   }
 
   const nameHeader = headers.find(h => h.toLowerCase().includes('name')) || headers[0] || 'NAME'
@@ -686,7 +696,7 @@ export default function App({ user, onLogout }) {
           </div>
 
           <div className="text-xs text-white/90 font-medium drop-shadow-xs">
-            Daisy's Portal
+            {displayName}'s Portal
           </div>
         </div>
       </header>
@@ -747,7 +757,7 @@ export default function App({ user, onLogout }) {
                 </svg>
                 <span>Logout</span>
               </button>
-              <p className="text-[11px] text-white/60 text-center">Logged in as Daisy</p>
+              <p className="text-[11px] text-white/60 text-center">Logged in as {displayName}</p>
             </div>
           </div>
         </div>
@@ -762,7 +772,7 @@ export default function App({ user, onLogout }) {
             <div className="bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-sm">
               <div>
                 <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-2">
-                  <span>{greeting}, Daisy!</span>
+                  <span>{greeting}, {displayName}!</span>
                   <span className="animate-bounce">👋</span>
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
@@ -1588,13 +1598,23 @@ export default function App({ user, onLogout }) {
                 Cancel
               </button>
               <button
-                onClick={() => {
+                onClick={async () => {
                   const balanceKey = headers.find(h => h.toLowerCase().includes('balance'))
                   if (balanceKey && editingOrder) {
                     editingOrder[balanceKey] = calculateBalance(editingOrder).toFixed(2)
                   }
-                  showAlert('Success', 'Order changes saved successfully!', 'success')
-                  setEditingOrder(null)
+
+                  const { error } = await supabase
+                    .from('customer-order-table')
+                    .update(editingOrder)
+                    .eq('id', editingOrder.id)
+
+                  if (error) {
+                    showAlert('Error', 'Failed to update order details.', 'error')
+                  } else {
+                    showAlert('Success', 'Order changes saved successfully!', 'success')
+                    setEditingOrder(null)
+                  }
                 }}
                 className={`px-4 py-2 ${activeThemeObj.primary} text-white font-semibold text-xs rounded-xl shadow-md transition`}
               >
