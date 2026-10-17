@@ -607,7 +607,7 @@ export default function App({ user, onLogout }) {
     return 0
   })
 
-  // Exact Balance Formula Calculation (Defaults to 0 if Cancelled)
+  // Exact Balance Formula Calculation (Defaults to 0 if Cancelled, includes Shipping Fee if Yes)
   const calculateBalance = (obj) => {
     const statusEntry = Object.entries(obj).find(([k]) => k.toLowerCase().includes('status'))
     const statusVal = statusEntry ? statusEntry[1].trim().toLowerCase() : ''
@@ -618,15 +618,23 @@ export default function App({ user, onLogout }) {
     const getVal = (predicate) => {
       const foundKey = Object.keys(obj).find(k => predicate(k.toLowerCase()))
       if (!foundKey) return 0
-      return parseFloat((obj[foundKey] || '').toString().replace(/[^0-9.]/g, '')) || 0
+      const val = obj[foundKey]
+      return parseFloat((val || '0').toString().replace(/[^0-9.]/g, '')) || 0
     }
 
     const price = getVal(k => k.includes('price') || k.includes('total') || (k.includes('amount') && !k.includes('shipping') && !k.includes('down') && !k.includes('payment'))) || 0
-    const shipping = getVal(k => k.includes('shipping')) || 0
+    
+    // Check if shipping option is Yes
+    const shippingOptionKey = Object.keys(obj).find(k => k.toLowerCase().includes('shipping') && (k.toLowerCase().includes('w/') || k.toLowerCase().includes('with')))
+    const shippingOptionVal = shippingOptionKey ? (obj[shippingOptionKey] || '').toString().trim().toLowerCase() : 'yes'
+    
+    const shippingFeeAmount = (shippingOptionVal === 'yes' || shippingOptionVal === '') ? getVal(k => k.includes('shipping') && !k.includes('w/') && !k.includes('with')) : 0
+    
     const downpayment = getVal(k => k.includes('downpayment') || k.includes('down payment')) || 0
     const payment = getVal(k => k.includes('payment') && !k.includes('down') && !k.includes('mode')) || 0
 
-    return (price + shipping) - (downpayment + payment)
+    const balance = (price + shippingFeeAmount) - (downpayment + payment)
+    return Math.max(0, balance)
   }
 
   const isCurrencyField = (keyName) => {
@@ -1787,7 +1795,6 @@ export default function App({ user, onLogout }) {
                         })
                         return obj
                       }))
-                      // Keep Jepoy Sarcena (the edited row) open after save
                       setExpandedRowId(rowId)
                     }
                   } catch (err) {
@@ -1865,7 +1872,14 @@ export default function App({ user, onLogout }) {
                       <label className="font-bold text-slate-600 uppercase text-[10px]">{key}</label>
                       <select
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
-                        onChange={(e) => { setNewOrderData({ ...newOrderData, [key]: e.target.value }) }}
+                        onChange={(e) => { 
+                          const updated = { ...newOrderData, [key]: e.target.value }
+                          const balanceKey = headers.find(h => h.toLowerCase().includes('balance'))
+                          if (balanceKey) {
+                            updated[balanceKey] = calculateBalance(updated).toFixed(2)
+                          }
+                          setNewOrderData(updated)
+                        }}
                       >
                         <option value="">Select...</option>
                         {shippingOptions.map((opt) => (
