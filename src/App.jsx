@@ -50,12 +50,13 @@ export default function App({ user, onLogout }) {
   const [appAlert, setAppAlert] = useState({ isOpen: false, title: '', message: '', type: 'success' })
   const [qrDeleteTarget, setQrDeleteTarget] = useState(null)
 
-  // Payment QR State
+  // Payment QR State & Supabase Storage Integration
   const [paymentQRs, setPaymentQRs] = useState([])
   const [selectedQR, setSelectedQR] = useState(null)
   const [newBankName, setNewBankName] = useState('')
   const [newQRImage, setNewQRImage] = useState(null)
   const [isManagingQR, setIsManagingQR] = useState(false)
+  const [uploadingQR, setUploadingQR] = useState(false)
 
   // Settings / Password State
   const [currentPassword, setCurrentPassword] = useState('')
@@ -273,6 +274,25 @@ export default function App({ user, onLogout }) {
     fetchCustomerOrders()
   }, [])
 
+  // FETCH PAYMENT QRS FROM SUPABASE
+  useEffect(() => {
+    async function fetchPaymentQRs() {
+      const { data, error } = await supabase
+        .from('payment-qr-table')
+        .select('*')
+        .order('created_at', { ascending: false })
+      
+      if (!error && data) {
+        setPaymentQRs(data.map(item => ({
+          id: item.id,
+          name: item.name,
+          qrUrl: item.qr_url
+        })))
+      }
+    }
+    fetchPaymentQRs()
+  }, [])
+
   // Logout Action
   const handleSignOut = async () => {
     await supabase.auth.signOut()
@@ -326,31 +346,74 @@ export default function App({ user, onLogout }) {
     }
   }
 
-  // Add QR Code Action
-  const handleAddQR = (e) => {
+  // Add QR Code Action (Saves to Supabase Storage + Database)
+  const handleAddQR = async (e) => {
     e.preventDefault()
     if (!newBankName || !newQRImage) {
       showAlert('Missing Fields', 'Please enter a bank name and select a QR image.', 'error')
       return
     }
-    const reader = new FileReader()
-    reader.onload = (event) => {
-      const newQR = {
-        id: Date.now(),
-        name: toTitleCase(newBankName),
-        qrUrl: event.target.result
+
+    try {
+      setUploadingQR(true)
+      const fileExt = newQRImage.name.split('.').pop()
+      const fileName = `${Date.now()}.${fileExt}`
+      const filePath = `${fileName}`
+
+      // 1. Upload image to Supabase Storage bucket 'payment-qrs'
+      const { error: uploadError } = await supabase.storage
+        .from('payment-qrs')
+        .upload(filePath, newQRImage)
+
+      if (uploadError) throw uploadError
+
+      // 2. Get Public URL of the uploaded image
+      const { data: { publicUrl } } = supabase.storage
+        .from('payment-qrs')
+        .getPublicUrl(filePath)
+
+      // 3. Save reference to Supabase database table
+      const formattedName = toTitleCase(newBankName)
+      const { data: insertedData, error: dbError } = await supabase
+        .from('payment-qr-table')
+        .insert([{ name: formattedName, qr_url: publicUrl }])
+        .select()
+
+      if (dbError) throw dbError
+
+      if (insertedData && insertedData[0]) {
+        setPaymentQRs([
+          { id: insertedData[0].id, name: insertedData[0].name, qrUrl: insertedData[0].qr_url },
+          ...paymentQRs
+        ])
       }
-      setPaymentQRs([...paymentQRs, newQR])
+
       setNewBankName('')
       setNewQRImage(null)
-      showAlert('Success', 'Payment QR added successfully!', 'success')
+      setUploadingQR(false)
+      showAlert('Success', 'Payment QR uploaded and saved permanently!', 'success')
+    } catch (err) {
+      console.error('Error uploading QR:', err)
+      setUploadingQR(false)
+      showAlert('Upload Failed', err.message || 'Could not upload QR image.', 'error')
     }
-    reader.readAsDataURL(newQRImage)
   }
 
-  const handleDeleteQR = (id, e) => {
+  // Delete QR Code Action from Supabase
+  const handleDeleteQR = async (id, e) => {
     e.stopPropagation()
-    setQrDeleteTarget(id)
+    const { error } = await supabase
+      .from('payment-qr-table')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      showAlert('Error', 'Failed to delete payment QR.', 'error')
+    } else {
+      setPaymentQRs(paymentQRs.filter(qr => qr.id !== id))
+      setQrDeleteTarget(null)
+      showAlert('Removed', 'Payment QR successfully removed.', 'success')
+    }
   }
 
   const navItems = [
@@ -1130,9 +1193,10 @@ export default function App({ user, onLogout }) {
               </div>
               <button
                 type="submit"
-                className={`px-4 py-2 ${activeThemeObj.primary} text-white rounded-lg text-xs font-semibold shadow-sm transition`}
+                disabled={uploadingQR}
+                className={`px-4 py-2 ${activeThemeObj.primary} text-white rounded-lg text-xs font-semibold shadow-sm transition disabled:opacity-50`}
               >
-                Upload Payment QR
+                {uploadingQR ? 'Uploading to Cloud...' : 'Upload Payment QR'}
               </button>
             </form>
 
@@ -1357,11 +1421,7 @@ export default function App({ user, onLogout }) {
                 Cancel
               </button>
               <button
-                onClick={() => {
-                  setPaymentQRs(paymentQRs.filter(qr => qr.id !== qrDeleteTarget))
-                  setQrDeleteTarget(null)
-                  showAlert('Removed', 'Payment QR successfully removed.', 'success')
-                }}
+                onClick={(e) => handleDeleteQR(qrDeleteTarget, e)}
                 className="flex-1 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs shadow-md transition"
               >
                 Yes, Remove
