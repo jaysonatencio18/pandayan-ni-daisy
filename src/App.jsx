@@ -30,8 +30,17 @@ export default function App({ user, onLogout }) {
   const displayName = getUserDisplayName()
 
   // Dynamic Theming State
-  const [currentTheme, setCurrentTheme] = useState('default')
+  const [currentTheme, setCurrentTheme] = useState(() => {
+  return user?.user_metadata?.theme || 'default'
+})
   const [pendingTheme, setPendingTheme] = useState(null)
+
+  // Sync theme once user metadata finishes loading
+  useEffect(() => {
+    if (user?.user_metadata?.theme) {
+      setCurrentTheme(user.user_metadata.theme)
+    }
+  }, [user])
 
   // Real Data State
   const [orders, setOrders] = useState([])
@@ -1496,9 +1505,13 @@ export default function App({ user, onLogout }) {
                 Cancel
               </button>
               <button
-                onClick={() => {
+                onClick={async () => {
                   setCurrentTheme(pendingTheme)
                   setPendingTheme(null)
+                  // Save theme choice to Supabase user metadata
+                  await supabase.auth.updateUser({
+                    data: { theme: pendingTheme }
+                  })
                 }}
                 className={`px-4 py-2 ${themeStyles[pendingTheme]?.primary || activeThemeObj.primary} text-white font-semibold text-xs rounded-xl shadow-md transition`}
               >
