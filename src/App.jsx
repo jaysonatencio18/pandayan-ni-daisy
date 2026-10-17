@@ -253,11 +253,12 @@ export default function App({ user, onLogout }) {
         if (error) throw error
 
         if (data && data.length > 0) {
-          const keys = Object.keys(data[0]).filter(k => k !== 'id' && k !== 'created_at')
+          const keys = Object.keys(data[0]).filter(k => k.toLowerCase() !== 'id' && k !== 'created_at')
           setHeaders(keys)
 
           const formattedData = data.map(item => {
-            let obj = { id: item.id }
+            const rowId = item.id
+            let obj = { id: rowId }
             keys.forEach(key => {
               let val = item[key] || ''
               if (key.toLowerCase().includes('status') && val.toLowerCase() === 'inprogress') {
@@ -633,6 +634,10 @@ export default function App({ user, onLogout }) {
     const balanceKey = headers.find(h => h.toLowerCase().includes('balance'))
     
     let formattedNewOrder = { ...newOrderData }
+    
+    // Remove id from new order payload so Supabase auto-generates it
+    delete formattedNewOrder.id
+
     Object.keys(formattedNewOrder).forEach(k => {
       formattedNewOrder[k] = formatFieldValue(k, formattedNewOrder[k])
     })
@@ -651,9 +656,21 @@ export default function App({ user, onLogout }) {
       .select()
 
     if (error) {
-      showAlert('Error', 'Failed to save new order to database.', 'error')
+      console.error('Insert error details:', error)
+      showAlert('Error', error.message || 'Failed to save new order to database.', 'error')
     } else if (data) {
-      setOrders([data[0], ...orders])
+      const insertedItem = data[0]
+      const rowId = insertedItem.id
+      let newObj = { id: rowId }
+      headers.forEach(key => {
+        let val = insertedItem[key] || ''
+        if (key.toLowerCase().includes('status') && val.toLowerCase() === 'inprogress') {
+          val = 'In Progress'
+        }
+        newObj[key] = formatFieldValue(key, val)
+      })
+
+      setOrders([newObj, ...orders])
       setIsAddOrderOpen(false)
       setNewOrderData({})
       showAlert('Success', 'New order added successfully!', 'success')
@@ -661,15 +678,17 @@ export default function App({ user, onLogout }) {
   }
 
   const handleDeleteOrder = async (orderToDelete) => {
+    const rowId = orderToDelete.id
+
     const { error } = await supabase
       .from('customer-order-table')
       .delete()
-      .eq('id', orderToDelete.id)
+      .eq('id', rowId)
 
     if (error) {
       showAlert('Error', 'Failed to delete order.', 'error')
     } else {
-      setOrders(orders.filter(o => o.id !== orderToDelete.id))
+      setOrders(orders.filter(o => o.id !== rowId))
       setDeletingOrder(null)
       setExpandedRow(null)
       showAlert('Deleted', 'Order successfully deleted.', 'success')
@@ -1578,7 +1597,10 @@ export default function App({ user, onLogout }) {
                       <select
                         defaultValue={currentVal}
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
-                        onChange={(e) => { editingOrder[key] = e.target.value }}
+                        onChange={(e) => { 
+                          editingOrder[key] = e.target.value 
+                          setEditingOrder({ ...editingOrder })
+                        }}
                       >
                         {statusOptions.map((opt) => (
                           <option key={opt} value={opt}>{opt}</option>
@@ -1678,28 +1700,54 @@ export default function App({ user, onLogout }) {
 
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
               <button
+                type="button"
                 onClick={() => setEditingOrder(null)}
                 className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold text-xs transition"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={async () => {
-                  const balanceKey = headers.find(h => h.toLowerCase().includes('balance'))
-                  if (balanceKey && editingOrder) {
-                    editingOrder[balanceKey] = calculateBalance(editingOrder).toFixed(2)
-                  }
+                  try {
+                    const balanceKey = headers.find(h => h.toLowerCase().includes('balance'))
+                    if (balanceKey && editingOrder) {
+                      editingOrder[balanceKey] = calculateBalance(editingOrder).toFixed(2)
+                    }
 
-                  const { error } = await supabase
-                    .from('customer-order-table')
-                    .update(editingOrder)
-                    .eq('id', editingOrder.id)
+                    const rowId = editingOrder.id
 
-                  if (error) {
-                    showAlert('Error', 'Failed to update order details.', 'error')
-                  } else {
+                    const payload = { ...editingOrder }
+                    delete payload.id
+
+                    const { error } = await supabase
+                      .from('customer-order-table')
+                      .update(payload)
+                      .eq('id', rowId)
+
+                    if (error) throw error
+
                     showAlert('Success', 'Order changes saved successfully!', 'success')
                     setEditingOrder(null)
+
+                    // Refresh orders list
+                    const { data, error: fetchError } = await supabase.from('customer-order-table').select('*')
+                    if (!fetchError && data) {
+                      setOrders(data.map(item => {
+                        let obj = { id: item.id }
+                        headers.forEach(key => {
+                          let val = item[key] || ''
+                          if (key.toLowerCase().includes('status') && val.toLowerCase() === 'inprogress') {
+                            val = 'In Progress'
+                          }
+                          obj[key] = formatFieldValue(key, val)
+                        })
+                        return obj
+                      }))
+                    }
+                  } catch (err) {
+                    console.error('Update error:', err)
+                    showAlert('Error', err.message || 'Failed to update order details.', 'error')
                   }
                 }}
                 className={`px-4 py-2 ${activeThemeObj.primary} text-white font-semibold text-xs rounded-xl shadow-md transition`}
@@ -1748,7 +1796,14 @@ export default function App({ user, onLogout }) {
                       <label className="font-bold text-slate-600 uppercase text-[10px]">{key}</label>
                       <select
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
-                        onChange={(e) => { setNewOrderData({ ...newOrderData, [key]: e.target.value }) }}
+                        onChange={(e) => { 
+                          const updated = { ...newOrderData, [key]: e.target.value }
+                          const balanceKey = headers.find(h => h.toLowerCase().includes('balance'))
+                          if (balanceKey) {
+                            updated[balanceKey] = calculateBalance(updated).toFixed(2)
+                          }
+                          setNewOrderData(updated)
+                        }}
                       >
                         <option value="">Select Status...</option>
                         {statusOptions.map((opt) => (
@@ -1850,12 +1905,14 @@ export default function App({ user, onLogout }) {
 
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
               <button
+                type="button"
                 onClick={() => setIsAddOrderOpen(false)}
                 className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold text-xs transition"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={handleSaveNewOrder}
                 className={`px-4 py-2 ${activeThemeObj.primary} text-white font-semibold text-xs rounded-xl shadow-md transition`}
               >
@@ -1869,6 +1926,7 @@ export default function App({ user, onLogout }) {
       {/* FLOATING ACTION BUTTON */}
       {(activeTab === 'dashboard' || activeTab === 'customer-orders') && (
         <button
+          type="button"
           onClick={() => setIsAddOrderOpen(true)}
           className={`fixed bottom-6 right-6 z-30 h-10 w-10 rounded-full ${activeThemeObj.primary} text-white shadow-lg flex items-center justify-center transition active:scale-95 ring-2 ring-white`}
           title="Add New Order"
