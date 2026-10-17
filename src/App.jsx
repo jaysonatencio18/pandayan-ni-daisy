@@ -982,7 +982,8 @@ export default function App({ user, onLogout }) {
                   <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-r ${softThemeGradient} p-3.5 sm:p-5 text-white shadow-md border border-white/10 flex flex-col justify-between`}>
                     <div>
                       <div className="flex items-center justify-between gap-1">
-                        <span className="text-[12px] sm:text-[14px] font-bold uppercase tracking-wider text-white/90 truncate leading-none">
+                        {/* Line 1: Reduced font size by 15% */}
+                        <span className="text-[10px] sm:text-[12px] font-bold uppercase tracking-wider text-white/90 truncate leading-none">
                           TOTAL SALES
                         </span>
                         <button
@@ -1009,7 +1010,7 @@ export default function App({ user, onLogout }) {
                       </div>
                     </div>
 
-                    {/* Line 3: Increased font size by 30% */}
+                    {/* Line 3 Amount */}
                     <div className="text-3xl sm:text-5xl font-bold font-['Google_Sans',sans-serif] tracking-tight text-white truncate mt-2 leading-none">
                       {showTotalSales ? `₱ ${totalSalesAmount.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '₱ ••••••'}
                     </div>
@@ -1060,7 +1061,8 @@ export default function App({ user, onLogout }) {
                   <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-r ${softThemeGradient} p-3.5 sm:p-5 text-white shadow-md border border-white/10 flex flex-col justify-between`}>
                     <div>
                       <div className="flex items-center justify-between gap-1">
-                        <span className="text-[12px] sm:text-[14px] font-bold uppercase tracking-wider text-white/90 truncate leading-none">
+                        {/* Line 1: Reduced font size by 15% */}
+                        <span className="text-[10px] sm:text-[12px] font-bold uppercase tracking-wider text-white/90 truncate leading-none">
                           AWAITING PAYMENTS
                         </span>
                         <button
@@ -1087,7 +1089,7 @@ export default function App({ user, onLogout }) {
                       </div>
                     </div>
 
-                    {/* Line 3: Increased font size by 30% */}
+                    {/* Line 3 Amount */}
                     <div className="text-3xl sm:text-5xl font-bold font-['Google_Sans',sans-serif] tracking-tight text-white truncate mt-2 leading-none">
                       {showAwaitingPayment ? `₱ ${pendingBalanceAmount.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '₱ ••••••'}
                     </div>
@@ -1100,7 +1102,7 @@ export default function App({ user, onLogout }) {
             {/* Clickable Status Cards Grid - Enforced 3 Columns Across All Devices (2 Rows x 3 Cards) */}
             <div className="grid grid-cols-3 gap-2 sm:gap-3">
               {[
-                { label: 'Completed Orders', statusTarget: 'Fully Paid', count: completedCount, color: 'text-indigo-600', border: 'border-indigo-200 hover:border-indigo-400' },
+                { label: 'Completed', statusTarget: 'Fully Paid', count: completedCount, color: 'text-indigo-600', border: 'border-indigo-200 hover:border-indigo-400' },
                 { label: 'Shipped Out', statusTarget: 'Shipped Out', count: shippedCount, color: 'text-emerald-600', border: 'border-emerald-200 hover:border-emerald-400' },
                 { label: 'In Progress', statusTarget: 'In Progress', count: inProgressCount, color: 'text-sky-600', border: 'border-sky-200 hover:border-sky-400' },
                 { label: 'Pending Orders', statusTarget: 'Pending', count: pendingCount, color: 'text-slate-800', border: 'border-slate-200 hover:border-slate-400' },
