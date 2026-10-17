@@ -452,11 +452,18 @@ export default function App({ user, onLogout }) {
   const onHoldCount = getStatusCount('On Hold')
   const cancelledCount = getStatusCount('Cancelled')
 
-  // Total Sales Calculation
+  // Total Sales Calculation (Sum of Downpayment and Payment columns)
   const totalSalesAmount = orders.reduce((sum, o) => {
-    const priceVal = Object.entries(o).find(([k]) => k.toLowerCase().includes('total') || k.toLowerCase().includes('price') || k.toLowerCase().includes('amount'))?.[1] || '0'
-    const cleanNum = parseFloat(priceVal.toString().replace(/[^0-9.]/g, '')) || 0
-    return sum + cleanNum
+    const getVal = (predicate) => {
+      const foundKey = Object.keys(o).find(k => predicate(k.toLowerCase()))
+      if (!foundKey) return 0
+      return parseFloat((o[foundKey] || '').toString().replace(/[^0-9.]/g, '')) || 0
+    }
+
+    const downpayment = getVal(k => k.includes('downpayment') || k.includes('down payment'))
+    const payment = getVal(k => k.includes('payment') && !k.includes('down') && !k.includes('mode'))
+
+    return sum + downpayment + payment
   }, 0)
 
   // Operational Insights Calculation
@@ -598,8 +605,14 @@ export default function App({ user, onLogout }) {
     return 0
   })
 
-  // Exact Balance Formula Calculation
+  // Exact Balance Formula Calculation (Defaults to 0 if Cancelled)
   const calculateBalance = (obj) => {
+    const statusEntry = Object.entries(obj).find(([k]) => k.toLowerCase().includes('status'))
+    const statusVal = statusEntry ? statusEntry[1].trim().toLowerCase() : ''
+    if (statusVal.includes('cancel')) {
+      return 0
+    }
+
     const getVal = (predicate) => {
       const foundKey = Object.keys(obj).find(k => predicate(k.toLowerCase()))
       if (!foundKey) return 0
