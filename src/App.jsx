@@ -1137,7 +1137,13 @@ export default function App({ user, onLogout }) {
                                   val = 'In Progress'
                                 }
                                 const isAmountField = isCurrencyField(key)
-                                const displayVal = isAmountField && val && !val.toString().includes('₱') ? `₱ ${val}` : (val || 'Not specified')
+                                let displayVal = val
+                                if (isAmountField) {
+                                  const num = parseFloat((val || '0').toString().replace(/[^0-9.]/g, '')) || 0
+                                  displayVal = `₱ ${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                } else {
+                                  displayVal = val || 'Not specified'
+                                }
                                 return (
                                   <div key={idx} className="bg-white p-2.5 rounded-xl border border-slate-200/80 shadow-2xs">
                                     <span className="block text-[10px] font-semibold text-slate-400 uppercase">{key}</span>
@@ -1732,10 +1738,18 @@ export default function App({ user, onLogout }) {
 
                     // Build clean payload using exact original keys matching Supabase column names
                     const payload = {}
+                    const balanceKey = headers.find(h => h.toLowerCase().includes('balance'))
+
                     Object.keys(editingOrder).forEach(key => {
                       const lower = key.toLowerCase()
-                      if (key !== 'id' && key !== 'created_at' && !lower.includes('balance')) {
+                      if (key !== 'id' && key !== 'created_at') {
                         let val = editingOrder[key]
+                        
+                        // If it's the balance column, compute it live before saving!
+                        if (lower.includes('balance')) {
+                          val = calculateBalance(editingOrder)
+                        }
+
                         if ((lower.includes('date') || isCurrencyField(key)) && (val === '' || val === undefined || val === null)) {
                           val = null
                         } else if (isCurrencyField(key) && val !== null && val !== undefined && val !== '') {
