@@ -2,11 +2,86 @@ import React, { useState, useEffect, useRef } from 'react'
 import { supabase } from './supabaseClient'
 import logoImg from '../Logo.jpg'
 
+// Import Modular Tab Components
+import MainDashboard from './components/MainDashboard'
+import CustomerOrder from './components/CustomerOrder'
+import ResellerDashboard from './components/ResellerDashboard'
+import ResellerOrder from './components/ResellerOrder'
+import MyTeam from './components/MyTeam'
+import OurProduct from './components/OurProduct'
+import PaymentOption from './components/PaymentOption'
+import AboutUs from './components/AboutUs'
+import Setting from './components/Setting'
+
 export default function App({ user, onLogout }) {
-  const [activeTab, setActiveTab] = useState('dashboard')
+  // Determine Role & Default Active Tab
+  const userRole = user?.user_metadata?.role || 'admin'
+  const isReseller = userRole === 'reseller'
+  const resellerName = user?.user_metadata?.display_name || user?.email || ''
+
+  const [activeTab, setActiveTab] = useState(() => {
+    const savedTab = localStorage.getItem('pandayan_active_tab')
+    if (savedTab) return savedTab
+    return isReseller ? 'reseller-dashboard' : 'dashboard'
+  })
+
+  // Save activeTab to localStorage on change
+  useEffect(() => {
+    if (activeTab) {
+      localStorage.setItem('pandayan_active_tab', activeTab)
+    }
+  }, [activeTab])
+
+  // Ensure active tab switches if role changes on login and saved tab isn't valid for reseller
+  useEffect(() => {
+    if (isReseller && activeTab !== 'reseller-dashboard' && activeTab !== 'reseller-orders') {
+      setActiveTab('reseller-dashboard')
+    }
+  }, [isReseller])
+
   const [showAmount, setShowAmount] = useState(false)
+
+  // Unapproved Reseller Orders & Updates Notification State
+  const [unapprovedCount, setUnapprovedCount] = useState(0)
+
+  // Fetch unapproved count on initial load
+  useEffect(() => {
+    async function fetchUnapprovedCount() {
+      try {
+        const { data, error } = await supabase
+          .from('reseller-order-table')
+          .select('*')
+
+        if (!error && data) {
+          if (isReseller) {
+            // Reseller sees count of items pending review or with pending edits
+            const count = data.filter(
+              o => o.admin_approval === 'For Approval' || o.admin_approval === 'For Edit Approval'
+            ).length
+            setUnapprovedCount(count)
+          } else {
+            // Admin sees all items requiring approval/edit approval
+            const count = data.filter(
+              o => o.admin_approval === 'For Approval' || o.admin_approval === 'For Edit Approval'
+            ).length
+            setUnapprovedCount(count)
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching unapproved count:', err)
+      }
+    }
+    fetchUnapprovedCount()
+  }, [isReseller])
+
+  const handleResellerOrdersUpdate = (fetchedOrders) => {
+    const count = fetchedOrders.filter(
+      o => o.admin_approval === 'For Approval' || o.admin_approval === 'For Edit Approval'
+    ).length
+    setUnapprovedCount(count)
+  }
   
-  // Persistent Visibility States for Dashboard Cards (Declared at top level to obey React Hook rules)
+  // Persistent Visibility States for Dashboard Cards
   const [showTotalSales, setShowTotalSales] = useState(() => localStorage.getItem('show_total_sales') === 'true')
   const [showAwaitingPayment, setShowAwaitingPayment] = useState(() => localStorage.getItem('show_awaiting_payment') === 'true')
 
@@ -25,22 +100,16 @@ export default function App({ user, onLogout }) {
   const [greeting, setGreeting] = useState('Good day')
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   
-  // Extract user display name from Supabase user metadata
   const getUserDisplayName = () => {
     if (!user) return 'User'
-    
-    // Check Supabase user_metadata for display_name or full_name
     const metadata = user.user_metadata || {}
     if (metadata.display_name) return metadata.display_name
     if (metadata.full_name) return metadata.full_name
     if (metadata.name) return metadata.name
-    
-    // Fallback to email username if display name is missing
     if (user.email) {
       const emailPrefix = user.email.split('@')[0]
       return emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1)
     }
-    
     return 'User'
   }
 
@@ -52,7 +121,6 @@ export default function App({ user, onLogout }) {
   })
   const [pendingTheme, setPendingTheme] = useState(null)
 
-  // Sync theme once user metadata finishes loading
   useEffect(() => {
     if (user?.user_metadata?.theme) {
       setCurrentTheme(user.user_metadata.theme)
@@ -65,7 +133,7 @@ export default function App({ user, onLogout }) {
   const [loadingOrders, setLoadingOrders] = useState(true)
   const [csvError, setCsvError] = useState('')
 
-  // Expanded Row & Form States - NOW TRACKING BY ID FOR PERSISTENCE
+  // Expanded Row & Form States
   const [expandedRowId, setExpandedRowId] = useState(null)
   const [editingOrder, setEditingOrder] = useState(null)
   const [deletingOrder, setDeletingOrder] = useState(null)
@@ -76,7 +144,7 @@ export default function App({ user, onLogout }) {
   const [appAlert, setAppAlert] = useState({ isOpen: false, title: '', message: '', type: 'success' })
   const [qrDeleteTarget, setQrDeleteTarget] = useState(null)
 
-  // Payment QR State & Supabase Storage Integration
+  // Payment QR State
   const [paymentQRs, setPaymentQRs] = useState([])
   const [selectedQR, setSelectedQR] = useState(null)
   const [newBankName, setNewBankName] = useState('')
@@ -90,23 +158,21 @@ export default function App({ user, onLogout }) {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [passwordMsg, setPasswordMsg] = useState({ text: '', type: '' })
 
-  // Password Visibility State (Eye Icons)
   const [showCurrentPassword, setShowCurrentPassword] = useState(false)
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
   // Filter & Sorting State
   const [filterStatus, setFilterStatus] = useState('ALL Orders')
+  const [resellerFilterStatus, setResellerFilterStatus] = useState('ALL Orders')
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' })
   const filterRef = useRef(null)
 
-  // Options for Dropdowns
   const statusOptions = ['Pending', 'In Progress', 'Shipped Out', 'Fully Paid', 'On Hold', 'Cancelled']
   const shippingOptions = ['Yes', 'No']
   const paymentModeOptions = ['Cash', 'Gcash', 'BDO', 'BPI', 'Maribank', 'COD', 'COP', 'Walk In']
 
-  // Official Product List for Insight Matching
   const officialProducts = [
     'Axe', 'Bikuko', 'Binakuko', 'Bolo', 'Bowie', 'Dahong palay', 
     'Ginunting', 'Itak', 'Kampilan', 'Karambit', 'Katana', 'Knife', 
@@ -120,7 +186,6 @@ export default function App({ user, onLogout }) {
   const [resetLoading, setResetLoading] = useState(false)
   const [resetMsg, setResetMsg] = useState('')
   
-  // Theme Styles Mapping
   const themeStyles = {
     default: {
       primary: 'bg-indigo-600 hover:bg-indigo-500',
@@ -178,7 +243,6 @@ export default function App({ user, onLogout }) {
     setAppAlert({ isOpen: true, title, message, type })
   }
 
-  // Text formatting helpers for proper case
   const toTitleCase = (str) => {
     if (!str) return ''
     return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase())
@@ -202,7 +266,6 @@ export default function App({ user, onLogout }) {
     return value
   }
 
-  // Dynamic Time-based Greeting
   useEffect(() => {
     const hour = new Date().getHours()
     if (hour < 12) setGreeting('Good morning')
@@ -210,7 +273,6 @@ export default function App({ user, onLogout }) {
     else setGreeting('Good evening')
   }, [])
 
-  // Close filter dropdown on outside click
   useEffect(() => {
     function handleClickOutside(event) {
       if (filterRef.current && !filterRef.current.contains(event.target)) {
@@ -221,7 +283,6 @@ export default function App({ user, onLogout }) {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Listen for Supabase password recovery event
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event) => {
       if (event === 'PASSWORD_RECOVERY') {
@@ -258,7 +319,6 @@ export default function App({ user, onLogout }) {
     }
   }
 
-  // FETCH LIVE DATA FROM SUPABASE TABLE (customer-order-table)
   useEffect(() => {
     async function fetchCustomerOrders() {
       try {
@@ -302,7 +362,6 @@ export default function App({ user, onLogout }) {
     fetchCustomerOrders()
   }, [])
 
-  // FETCH PAYMENT QRS FROM SUPABASE
   useEffect(() => {
     async function fetchPaymentQRs() {
       const { data, error } = await supabase
@@ -321,15 +380,14 @@ export default function App({ user, onLogout }) {
     fetchPaymentQRs()
   }, [])
 
-  // Logout Action
   const handleSignOut = async () => {
+    localStorage.removeItem('pandayan_active_tab')
     await supabase.auth.signOut()
     if (onLogout) {
       onLogout()
     }
   }
 
-  // Password Update Action (Requires Current Password verification)
   const handlePasswordChange = async (e) => {
     e.preventDefault()
     setPasswordMsg({ text: '', type: '' })
@@ -374,7 +432,6 @@ export default function App({ user, onLogout }) {
     }
   }
 
-  // Add QR Code Action (Saves to Supabase Storage + Database)
   const handleAddQR = async (e) => {
     e.preventDefault()
     if (!newBankName || !newQRImage) {
@@ -388,19 +445,16 @@ export default function App({ user, onLogout }) {
       const fileName = `${Date.now()}.${fileExt}`
       const filePath = `${fileName}`
 
-      // 1. Upload image to Supabase Storage bucket 'payment-qrs'
       const { error: uploadError } = await supabase.storage
         .from('payment-qrs')
         .upload(filePath, newQRImage)
 
       if (uploadError) throw uploadError
 
-      // 2. Get Public URL of the uploaded image
       const { data: { publicUrl } } = supabase.storage
         .from('payment-qrs')
         .getPublicUrl(filePath)
 
-      // 3. Save reference to Supabase database table
       const formattedName = toTitleCase(newBankName)
       const { data: insertedData, error: dbError } = await supabase
         .from('payment-qr-table')
@@ -427,7 +481,6 @@ export default function App({ user, onLogout }) {
     }
   }
 
-  // Delete QR Code Action from Supabase
   const handleDeleteQR = async (id, e) => {
     e.stopPropagation()
     const { error } = await supabase
@@ -444,16 +497,23 @@ export default function App({ user, onLogout }) {
     }
   }
 
-  const navItems = [
+  // Dynamic Nav Items based on User Role
+  const allNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: 'M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z' },
     { id: 'customer-orders', label: 'Customer Orders', icon: 'M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z' },
-    { id: 'reseller-orders', label: 'Reseller Orders', icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10' },
+    { id: 'reseller-dashboard', label: 'Reseller Dashboard', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' },
+    { id: 'reseller-orders', label: 'Reseller Orders', icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2h0v0zM7 7h10' },
     { id: 'my-team', label: 'My Team', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z' },
+    { id: 'our-products', label: 'Our Products', icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4' },
     { id: 'payment-options', label: 'Payment Options', icon: 'M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z' },
+    { id: 'about-us', label: 'About Us', icon: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
     { id: 'settings', label: 'Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z' },
   ]
 
-  // Status Matching Helper
+  const navItems = isReseller
+    ? allNavItems.filter(item => item.id === 'reseller-dashboard' || item.id === 'reseller-orders')
+    : allNavItems
+
   const getStatusCount = (targetStatus) => {
     return orders.filter(o => {
       const statusEntry = Object.entries(o).find(([k]) => k.toLowerCase().includes('status'))
@@ -471,21 +531,17 @@ export default function App({ user, onLogout }) {
   const onHoldCount = getStatusCount('On Hold')
   const cancelledCount = getStatusCount('Cancelled')
 
-  // Total Sales Calculation (Sum of Downpayment and Payment columns)
   const totalSalesAmount = orders.reduce((sum, o) => {
     const getVal = (predicate) => {
       const foundKey = Object.keys(o).find(k => predicate(k.toLowerCase()))
       if (!foundKey) return 0
       return parseFloat((o[foundKey] || '').toString().replace(/[^0-9.]/g, '')) || 0
     }
-
     const downpayment = getVal(k => k.includes('downpayment') || k.includes('down payment'))
     const payment = getVal(k => k.includes('payment') && !k.includes('down') && !k.includes('mode'))
-
     return sum + downpayment + payment
   }, 0)
 
-  // Awaiting Payments Calculation
   const totalActivePrice = orders.reduce((sum, o) => {
     const statusEntry = Object.entries(o).find(([k]) => k.toLowerCase().includes('status'))
     const statusVal = statusEntry ? statusEntry[1].trim().toLowerCase() : ''
@@ -507,7 +563,6 @@ export default function App({ user, onLogout }) {
 
   const pendingBalanceAmount = Math.max(0, totalActivePrice - totalSalesAmount)
 
-  // Operational Insights Calculation
   const orderHeader = headers.find(h => h.toLowerCase().includes('order')) || headers[1] || 'Order'
   const dateHeaders = headers.filter(h => h.toLowerCase().includes('date') || h.toLowerCase().includes('ship'))
 
@@ -640,38 +695,29 @@ export default function App({ user, onLogout }) {
     if (!sortConfig.key) return 0
     const valA = (a[sortConfig.key] || '').toString().toLowerCase()
     const valB = (b[sortConfig.key] || '').toString().toLowerCase()
-    
     if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1
     if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1
     return 0
   })
 
-  // Exact Balance Formula Calculation (Defaults to 0 if Cancelled, includes Shipping Fee if Yes)
   const calculateBalance = (obj) => {
     const statusEntry = Object.entries(obj).find(([k]) => k.toLowerCase().includes('status'))
     const statusVal = statusEntry ? statusEntry[1].trim().toLowerCase() : ''
     if (statusVal.includes('cancel')) {
       return 0
     }
-
     const getVal = (predicate) => {
       const foundKey = Object.keys(obj).find(k => predicate(k.toLowerCase()))
       if (!foundKey) return 0
       const val = obj[foundKey]
       return parseFloat((val || '0').toString().replace(/[^0-9.]/g, '')) || 0
     }
-
     const price = getVal(k => k.includes('price') || k.includes('total') || (k.includes('amount') && !k.includes('shipping') && !k.includes('down') && !k.includes('payment'))) || 0
-    
-    // Check if shipping option is Yes
     const shippingOptionKey = Object.keys(obj).find(k => k.toLowerCase().includes('shipping') && (k.toLowerCase().includes('w/') || k.toLowerCase().includes('with')))
     const shippingOptionVal = shippingOptionKey ? (obj[shippingOptionKey] || '').toString().trim().toLowerCase() : 'yes'
-    
     const shippingFeeAmount = (shippingOptionVal === 'yes' || shippingOptionVal === '') ? getVal(k => k.includes('shipping') && !k.includes('w/') && !k.includes('with')) : 0
-    
     const downpayment = getVal(k => k.includes('downpayment') || k.includes('down payment')) || 0
     const payment = getVal(k => k.includes('payment') && !k.includes('down') && !k.includes('mode')) || 0
-
     const balance = (price + shippingFeeAmount) - (downpayment + payment)
     return Math.max(0, balance)
   }
@@ -687,8 +733,6 @@ export default function App({ user, onLogout }) {
     const balanceKey = headers.find(h => h.toLowerCase().includes('balance'))
     
     let formattedNewOrder = { ...newOrderData }
-    
-    // Remove id, created_at, and balance from payload
     delete formattedNewOrder.id
     delete formattedNewOrder.created_at
     if (balanceKey) delete formattedNewOrder[balanceKey]
@@ -741,7 +785,6 @@ export default function App({ user, onLogout }) {
 
   const handleDeleteOrder = async (orderToDelete) => {
     const rowId = orderToDelete.id
-
     const { error } = await supabase
       .from('customer-order-table')
       .delete()
@@ -757,31 +800,18 @@ export default function App({ user, onLogout }) {
     }
   }
 
-  const nameHeader = headers.find(h => h.toLowerCase().includes('name')) || headers[0] || 'Name'
-  const dateHeader = headers.find(h => h.toLowerCase().includes('date')) || headers[2] || 'Date Order'
-
   if (isPasswordResetMode) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 py-12">
         <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white p-8 shadow-2xl">
-          <h2 className="text-2xl font-bold tracking-tight text-slate-900 mb-2">
-            Set New Password
-          </h2>
-          <p className="text-sm text-slate-500 mb-6">
-            Please enter your new secure password below.
-          </p>
-
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900 mb-2">Set New Password</h2>
+          <p className="text-sm text-slate-500 mb-6">Please enter your new secure password below.</p>
           {resetMsg && (
-            <div className="mb-4 rounded-xl bg-red-50 p-3 text-sm font-medium text-red-600">
-              {resetMsg}
-            </div>
+            <div className="mb-4 rounded-xl bg-red-50 p-3 text-sm font-medium text-red-600">{resetMsg}</div>
           )}
-
           <form onSubmit={handleSaveResetPassword} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">
-                New Password
-              </label>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">New Password</label>
               <input
                 type="password"
                 required
@@ -791,11 +821,8 @@ export default function App({ user, onLogout }) {
                 placeholder="••••••••"
               />
             </div>
-
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">
-                Confirm New Password
-              </label>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">Confirm New Password</label>
               <input
                 type="password"
                 required
@@ -805,7 +832,6 @@ export default function App({ user, onLogout }) {
                 placeholder="••••••••"
               />
             </div>
-
             <button
               type="submit"
               disabled={resetLoading}
@@ -819,21 +845,12 @@ export default function App({ user, onLogout }) {
     )
   }
 
-  // Explicitly map a visibly lighter, solid high-contrast background tint for Awaiting Payments based on current theme
-  const lighterThemeBg = {
-    default: 'from-indigo-500 via-indigo-600 to-indigo-800',
-    feminine: 'from-rose-400 via-pink-500 to-pink-700',
-    masculine: 'from-emerald-500 via-emerald-600 to-teal-800',
-    earth: 'from-amber-600 via-amber-700 to-stone-800'
-  }[currentTheme] || 'from-indigo-500 via-indigo-600 to-indigo-800'
-
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-indigo-500 selection:text-white relative pb-20">
       
       {/* --- TOP MOBILE NAVBAR --- */}
       <header className={`sticky top-0 z-40 ${activeThemeObj.headerBg} backdrop-blur-md border-b border-white/20 px-4 py-3 shadow-lg transition-colors`}>
         <div className="max-w-4xl mx-auto flex items-center justify-between">
-          
           <div className="flex items-center space-x-3">
             <button
               onClick={() => setIsDrawerOpen(true)}
@@ -847,26 +864,15 @@ export default function App({ user, onLogout }) {
 
             <div className="flex items-center space-x-2.5">
               <div className="h-9 w-9 rounded-xl bg-black/40 border border-white/20 overflow-hidden shrink-0 shadow-sm">
-                <img
-                  src={logoImg}
-                  alt="Sword Maker Logo"
-                  className="h-full w-full object-cover block"
-                />
+                <img src={logoImg} alt="Logo" className="h-full w-full object-cover block" />
               </div>
               <div>
-                <h1 className="text-sm font-bold leading-tight text-white tracking-tight drop-shadow-xs">
-                  Sword Maker
-                </h1>
-                <p className="text-[10px] font-medium text-white/90 leading-none">
-                  in Pampanga
-                </p>
+                <h1 className="text-sm font-bold leading-tight text-white tracking-tight drop-shadow-xs">Sword Maker</h1>
+                <p className="text-[10px] font-medium text-white/90 leading-none">in Pampanga</p>
               </div>
             </div>
           </div>
-
-          <div className="text-xs text-white/90 font-medium drop-shadow-xs">
-            {displayName}'s Portal
-          </div>
+          <div className="text-xs text-white/90 font-medium drop-shadow-xs">{displayName}'s Portal</div>
         </div>
       </header>
 
@@ -883,7 +889,9 @@ export default function App({ user, onLogout }) {
                   </div>
                   <div>
                     <h2 className="text-sm font-bold text-white">Sword Maker</h2>
-                    <p className="text-[10px] text-white/70">Operations Navigation</p>
+                    <p className="text-[10px] text-white/70">
+                      {isReseller ? 'Reseller Portal' : 'Operations Navigation'}
+                    </p>
                   </div>
                 </div>
                 <button onClick={() => setIsDrawerOpen(false)} className="p-1.5 rounded-lg text-white/70 hover:bg-white/10 hover:text-white transition">
@@ -901,16 +909,25 @@ export default function App({ user, onLogout }) {
                       setActiveTab(item.id)
                       setIsDrawerOpen(false)
                     }}
-                    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-xs font-semibold transition ${
+                    className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-semibold transition ${
                       activeTab === item.id
                         ? `${activeThemeObj.primary} text-white shadow-lg ring-2 ring-white/20`
                         : 'text-white/80 hover:bg-white/10 hover:text-white'
                     }`}
                   >
-                    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={item.icon} />
-                    </svg>
-                    <span>{item.label}</span>
+                    <div className="flex items-center space-x-3">
+                      <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={item.icon} />
+                      </svg>
+                      <span>{item.label}</span>
+                    </div>
+
+                    {/* Notification Count Badge visible to both Admin and Reseller */}
+                    {item.id === 'reseller-orders' && unapprovedCount > 0 && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500 text-white shadow-xs">
+                        {unapprovedCount}
+                      </span>
+                    )}
                   </button>
                 ))}
               </nav>
@@ -935,689 +952,119 @@ export default function App({ user, onLogout }) {
       {/* --- MAIN CONTENT AREA --- */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 space-y-4">
         
-        {/* DASHBOARD TAB */}
-        {activeTab === 'dashboard' && (
-          <div className="space-y-4">
-            <div className="bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-sm">
-              <div>
-                <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-2">
-                  <span>{greeting}, {displayName}!</span>
-                  <span className="animate-bounce">👋</span>
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Here's the operation summary of your pandayan business.
-                </p>
-              </div>
-            </div>
-
-            {/* Side-by-Side Metrics Grid: Total Sales (Left) & Awaiting Payments (Right) */}
-            <div className="grid grid-cols-2 gap-3 sm:gap-4 font-['Google_Sans',sans-serif]">
-              
-              {/* Total Sales Card (Left) */}
-              {(() => {
-                const totalSalesOrdersCount = orders.filter(o => {
-                  const statusEntry = Object.entries(o).find(([k]) => k.toLowerCase().includes('status'))
-                  const statusVal = statusEntry ? statusEntry[1].trim().toLowerCase() : ''
-                  if (statusVal.includes('cancel')) return false
-
-                  const getVal = (predicate) => {
-                    const foundKey = Object.keys(o).find(k => predicate(k.toLowerCase()))
-                    if (!foundKey) return 0
-                    return parseFloat((o[foundKey] || '').toString().replace(/[^0-9.]/g, '')) || 0
-                  }
-
-                  const downpayment = getVal(k => k.includes('downpayment') || k.includes('down payment'))
-                  const payment = getVal(k => k.includes('payment') && !k.includes('down') && !k.includes('mode'))
-                  return (downpayment + payment) > 0
-                }).length
-
-                const softThemeGradient = {
-                  default: 'from-indigo-500 via-indigo-400 to-indigo-600',
-                  feminine: 'from-rose-400 via-pink-400 to-rose-500',
-                  masculine: 'from-emerald-500 via-emerald-400 to-teal-600',
-                  earth: 'from-amber-600 via-amber-500 to-stone-600'
-                }[currentTheme] || 'from-indigo-500 via-indigo-400 to-indigo-600'
-
-                return (
-                  <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-r ${softThemeGradient} p-3.5 sm:p-5 text-white shadow-md border border-white/10 flex flex-col justify-between`}>
-                    <div>
-                      <div className="flex items-center justify-between gap-1">
-                        {/* Line 1: Reduced font size by 15% */}
-                        <span className="text-[10px] sm:text-[12px] font-bold uppercase tracking-wider text-white/90 truncate leading-none">
-                          TOTAL SALES
-                        </span>
-                        <button
-                          onClick={toggleTotalSales}
-                          className="flex items-center justify-center p-1.5 rounded-lg bg-black/15 hover:bg-black/25 text-white backdrop-blur-sm transition border border-white/20 shrink-0"
-                          title={showTotalSales ? 'Hide Amount' : 'Show Amount'}
-                        >
-                          {showTotalSales ? (
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                            </svg>
-                          ) : (
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                            </svg>
-                          )}
-                        </button>
-                      </div>
-
-                      {/* Line 2 with zero gap touching Line 1 */}
-                      <div className="text-[13px] sm:text-[15px] font-normal text-white/85 truncate leading-none -mt-1">
-                        {totalSalesOrdersCount} {totalSalesOrdersCount === 1 ? 'order' : 'orders'}
-                      </div>
-                    </div>
-
-                    {/* Line 3 Amount */}
-                    <div className="text-3xl sm:text-5xl font-bold font-['Google_Sans',sans-serif] tracking-tight text-white truncate mt-2 leading-none">
-                      {showTotalSales ? `₱ ${totalSalesAmount.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '₱ ••••••'}
-                    </div>
-                  </div>
-                )
-              })()}
-
-              {/* Awaiting Payments Card (Right) */}
-              {(() => {
-                const totalActivePrice = orders.reduce((sum, o) => {
-                  const statusEntry = Object.entries(o).find(([k]) => k.toLowerCase().includes('status'))
-                  const statusVal = statusEntry ? statusEntry[1].trim().toLowerCase() : ''
-                  if (statusVal.includes('cancel')) return sum
-
-                  const getVal = (predicate) => {
-                    const foundKey = Object.keys(o).find(k => predicate(k.toLowerCase()))
-                    if (!foundKey) return 0
-                    return parseFloat((o[foundKey] || '').toString().replace(/[^0-9.]/g, '')) || 0
-                  }
-
-                  const price = getVal(k => k.includes('price') || k.includes('total') || (k.includes('amount') && !k.includes('shipping') && !k.includes('down') && !k.includes('payment'))) || 0
-                  const shippingOptionKey = Object.keys(o).find(k => k.toLowerCase().includes('shipping') && (k.toLowerCase().includes('w/') || k.toLowerCase().includes('with')))
-                  const shippingOptionVal = shippingOptionKey ? (o[shippingOptionKey] || '').toString().trim().toLowerCase() : 'yes'
-                  const shippingFeeAmount = (shippingOptionVal === 'yes' || shippingOptionVal === '') ? getVal(k => k.includes('shipping') && !k.includes('w/') && !k.includes('with')) : 0
-
-                  return sum + price + shippingFeeAmount
-                }, 0)
-
-                const pendingBalanceAmount = Math.max(0, totalActivePrice - totalSalesAmount)
-
-                const awaitingOrdersCount = orders.filter(o => {
-                  const balanceKey = Object.keys(o).find(k => k.toLowerCase().includes('balance'))
-                  if (!balanceKey) return true
-                  const val = o[balanceKey]
-                  if (val === null || val === undefined || val === '' || val === 0 || val === '0' || val === '0.00') return true
-                  const num = parseFloat(val.toString().replace(/[^0-9.]/g, '')) || 0
-                  return num === 0
-                }).length
-
-                const softThemeGradient = {
-                  default: 'from-indigo-500 via-indigo-400 to-indigo-600',
-                  feminine: 'from-rose-400 via-pink-400 to-rose-500',
-                  masculine: 'from-emerald-500 via-emerald-400 to-teal-600',
-                  earth: 'from-amber-600 via-amber-500 to-stone-600'
-                }[currentTheme] || 'from-indigo-500 via-indigo-400 to-indigo-600'
-
-                return (
-                  <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-r ${softThemeGradient} p-3.5 sm:p-5 text-white shadow-md border border-white/10 flex flex-col justify-between`}>
-                    <div>
-                      <div className="flex items-center justify-between gap-1">
-                        {/* Line 1: Reduced font size by 15% */}
-                        <span className="text-[10px] sm:text-[12px] font-bold uppercase tracking-wider text-white/90 truncate leading-none">
-                          AWAITING PAYMENTS
-                        </span>
-                        <button
-                          onClick={toggleAwaitingPayment}
-                          className="flex items-center justify-center p-1.5 rounded-lg bg-black/15 hover:bg-black/25 text-white backdrop-blur-sm transition border border-white/20 shrink-0"
-                          title={showAwaitingPayment ? 'Hide Amount' : 'Show Amount'}
-                        >
-                          {showAwaitingPayment ? (
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                            </svg>
-                          ) : (
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                            </svg>
-                          )}
-                        </button>
-                      </div>
-
-                      {/* Line 2 with zero gap touching Line 1 */}
-                      <div className="text-[13px] sm:text-[15px] font-normal text-white/85 truncate leading-none -mt-1">
-                        {awaitingOrdersCount} {awaitingOrdersCount === 1 ? 'order' : 'orders'}
-                      </div>
-                    </div>
-
-                    {/* Line 3 Amount */}
-                    <div className="text-3xl sm:text-5xl font-bold font-['Google_Sans',sans-serif] tracking-tight text-white truncate mt-2 leading-none">
-                      {showAwaitingPayment ? `₱ ${pendingBalanceAmount.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '₱ ••••••'}
-                    </div>
-                  </div>
-                )
-              })()}
-
-            </div>
-
-            {/* Clickable Status Cards Grid - Enforced 3 Columns Across All Devices (2 Rows x 3 Cards) */}
-            <div className="grid grid-cols-3 gap-2 sm:gap-3">
-              {[
-                { label: 'Completed', statusTarget: 'Fully Paid', count: completedCount, color: 'text-indigo-600', border: 'border-indigo-200 hover:border-indigo-400' },
-                { label: 'Shipped Out', statusTarget: 'Shipped Out', count: shippedCount, color: 'text-emerald-600', border: 'border-emerald-200 hover:border-emerald-400' },
-                { label: 'In Progress', statusTarget: 'In Progress', count: inProgressCount, color: 'text-sky-600', border: 'border-sky-200 hover:border-sky-400' },
-                { label: 'Pending Orders', statusTarget: 'Pending', count: pendingCount, color: 'text-slate-800', border: 'border-slate-200 hover:border-slate-400' },
-                { label: 'On Hold', statusTarget: 'On Hold', count: onHoldCount, color: 'text-amber-600', border: 'border-amber-200 hover:border-amber-400' },
-                { label: 'Cancelled', statusTarget: 'Cancelled', count: cancelledCount, color: 'text-rose-600', border: 'border-rose-200 hover:border-rose-400' },
-              ].map((item, index) => (
-                <div
-                  key={index}
-                  onClick={() => handleCardClick(item.statusTarget)}
-                  className={`bg-white border ${item.border} rounded-xl p-2.5 sm:p-3.5 flex flex-col justify-between shadow-sm cursor-pointer hover:shadow-md transition active:scale-98`}
-                  title={`View ${item.label} in Customer Orders`}
-                >
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="text-[8px] sm:text-[10px] font-bold uppercase tracking-wider text-slate-500 leading-tight truncate">
-                      {item.label}
-                    </span>
-                    <svg className="w-3 h-3 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                    </svg>
-                  </div>
-                  <span className={`text-lg sm:text-xl font-extrabold mt-1 leading-none ${item.color}`}>
-                    {item.count}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            {/* Operational Insights */}
-            <div className="bg-white border border-slate-200/80 rounded-2xl p-4.5 shadow-sm space-y-2.5">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-100 pb-2">
-                Operational Insights
-              </h3>
-              <ul className="space-y-2 text-xs text-slate-700 font-medium">
-                <li className="flex items-start gap-2">
-                  <span className={`${activeThemeObj.textPrimary} font-bold`}>•</span>
-                  <span>Top-selling product this month is <strong className="text-slate-900">{topProductCurrentMonth}</strong> ({maxCountCurrentMonth} orders recorded).</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-amber-500 font-bold">•</span>
-                  <span>{agingInProgressCount > 0 ? `${agingInProgressCount} order(s) in progress have been sitting for 7 days or more, please check.` : 'All in progress orders are currently within normal processing timeframe.'}</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-emerald-600 font-bold">•</span>
-                  <span>Your team has completed and shipped a total of <strong className="text-slate-900">{currentMonthCompletedShippedCount} orders</strong> this month.</span>
-                </li>
-              </ul>
-            </div>
-          </div>
+        {!isReseller && activeTab === 'dashboard' && (
+          <MainDashboard
+            greeting={greeting}
+            displayName={displayName}
+            currentTheme={currentTheme}
+            orders={orders}
+            completedCount={completedCount}
+            shippedCount={shippedCount}
+            inProgressCount={inProgressCount}
+            pendingCount={pendingCount}
+            onHoldCount={onHoldCount}
+            cancelledCount={cancelledCount}
+            totalSalesAmount={totalSalesAmount}
+            pendingBalanceAmount={pendingBalanceAmount}
+            showTotalSales={showTotalSales}
+            toggleTotalSales={toggleTotalSales}
+            showAwaitingPayment={showAwaitingPayment}
+            toggleAwaitingPayment={toggleAwaitingPayment}
+            handleCardClick={handleCardClick}
+            activeThemeObj={activeThemeObj}
+            topProductCurrentMonth={topProductCurrentMonth}
+            maxCountCurrentMonth={maxCountCurrentMonth}
+            agingInProgressCount={agingInProgressCount}
+            currentMonthCompletedShippedCount={currentMonthCompletedShippedCount}
+          />
         )}
 
-        {/* CUSTOMER ORDERS TAB */}
-        {activeTab === 'customer-orders' && (
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-4">
-            
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3 relative">
-              <h3 className="text-base font-bold text-slate-900">Customer Orders</h3>
-              
-              <div className="flex items-center gap-2" ref={filterRef}>
-                <button
-                  onClick={resetFilters}
-                  className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition border border-slate-200"
-                  title="Reset Filters & Sorting"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                </button>
-
-                <div className="relative">
-                  <button
-                    onClick={() => setIsFilterOpen(!isFilterOpen)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition shadow-2xs border ${
-                      filterStatus.toLowerCase().includes('fully paid') ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
-                      filterStatus.toLowerCase().includes('shipped') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                      filterStatus.toLowerCase().includes('progress') ? 'bg-sky-50 text-sky-700 border-sky-200' :
-                      filterStatus.toLowerCase().includes('hold') ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                      filterStatus.toLowerCase().includes('cancel') ? 'bg-rose-50 text-rose-700 border-rose-200' :
-                      filterStatus.toLowerCase().includes('pending') ? 'bg-slate-100 text-slate-800 border-slate-200' :
-                      activeThemeObj.badgeBg
-                    }`}
-                  >
-                    <span>{filterStatus} ({sortedOrders.length})</span>
-                    <svg className={`w-3.5 h-3.5 transition-transform ${isFilterOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
-
-                  {isFilterOpen && (
-                    <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-xl z-50 py-1.5 animate-fade-in text-xs font-medium">
-                      {['ALL Orders', 'Fully Paid', 'Shipped Out', 'In Progress', 'Pending', 'On Hold', 'Cancelled'].map((status) => {
-                        const isSelected = filterStatus === status
-                        return (
-                          <button
-                            key={status}
-                            onClick={() => {
-                              setFilterStatus(status)
-                              setIsFilterOpen(false)
-                            }}
-                            className={`w-full text-left px-4 py-2 hover:bg-slate-50 transition flex items-center justify-between ${isSelected ? 'font-bold' : 'text-slate-700'}`}
-                          >
-                            <span>{status}</span>
-                            {status.toLowerCase().includes('fully paid') && <span className="w-2 h-2 rounded-full bg-indigo-500"></span>}
-                            {status.toLowerCase().includes('shipped') && <span className="w-2 h-2 rounded-full bg-emerald-500"></span>}
-                            {status.toLowerCase().includes('progress') && <span className="w-2 h-2 rounded-full bg-sky-500"></span>}
-                            {status.toLowerCase().includes('hold') && <span className="w-2 h-2 rounded-full bg-amber-500"></span>}
-                            {status.toLowerCase().includes('cancel') && <span className="w-2 h-2 rounded-full bg-rose-500"></span>}
-                            {status.toLowerCase().includes('pending') && <span className="w-2 h-2 rounded-full bg-slate-400"></span>}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {loadingOrders ? (
-              <div className="py-12 text-center text-xs text-slate-400">Loading customer orders...</div>
-            ) : sortedOrders.length === 0 ? (
-              <div className="py-12 text-center text-xs text-slate-400">No records found for "{filterStatus}".</div>
-            ) : (
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <div className="sticky top-0 z-30 bg-slate-100 border-b border-slate-200 px-3.5 py-2.5 grid grid-cols-3 gap-2 text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                  <button onClick={() => handleSort(nameHeader)} className="flex items-center gap-1 text-left hover:text-slate-900 transition truncate">
-                    <span>Name</span>
-                    {sortConfig.key === nameHeader && (
-                      <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
-                    )}
-                  </button>
-
-                  <button onClick={() => handleSort(dateHeader)} className="flex items-center gap-1 text-left hover:text-slate-900 transition truncate">
-                    <span>Date Order</span>
-                    {sortConfig.key === dateHeader && (
-                      <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
-                    )}
-                  </button>
-
-                  <button onClick={() => handleSort(orderHeader)} className="flex items-center justify-end sm:justify-start gap-1 text-right sm:text-left hover:text-slate-900 transition truncate">
-                    <span>Order</span>
-                    {sortConfig.key === orderHeader && (
-                      <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
-                    )}
-                  </button>
-                </div>
-
-                <div className="max-h-[550px] overflow-y-auto">
-                  {sortedOrders.map((row) => {
-                    const isExpanded = expandedRowId === row.id
-                    const statusKey = headers.find(h => h.toLowerCase().includes('status'))
-
-                    let statusVal = statusKey ? row[statusKey] : 'Pending'
-                    if (statusVal.trim().toLowerCase() === 'inprogress') statusVal = 'In Progress'
-
-                    const customerName = row[nameHeader] || 'Unnamed Customer'
-                    const orderDesc = row[orderHeader] || 'No description'
-                    const dateVal = row[dateHeader] || 'Not specified'
-
-                    return (
-                      <div key={row.id} className="border-b border-slate-100 last:border-0">
-                        <div
-                          onClick={() => setExpandedRowId(isExpanded ? null : row.id)}
-                          className="grid grid-cols-3 gap-2 p-3.5 items-center hover:bg-slate-50 cursor-pointer transition"
-                        >
-                          <div className="font-bold text-slate-900 text-xs sm:text-sm truncate">
-                            {customerName}
-                          </div>
-
-                          <div className="text-slate-500 text-[11px] font-medium truncate">
-                            {dateVal}
-                          </div>
-
-                          <div className="flex flex-col items-end sm:items-start space-y-1 truncate">
-                            {statusKey && (
-                              <span className={`inline-block px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border ${getStatusBadge(statusVal)}`}>
-                                {statusVal}
-                              </span>
-                            )}
-                            <span className="text-xs text-slate-700 font-medium truncate w-full">
-                              {orderDesc}
-                            </span>
-                          </div>
-                        </div>
-
-                        {isExpanded && (
-                          <div className="bg-slate-50 p-4 border-t border-slate-200/60 space-y-3 animate-fade-in">
-                            <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-                              <span className={`text-xs font-bold ${activeThemeObj.textPrimary} uppercase tracking-wider`}>Complete Order Details</span>
-                              
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setEditingOrder(row)
-                                  }}
-                                  className={`flex items-center gap-1 px-3 py-1 ${activeThemeObj.primary} text-white rounded-lg text-xs font-semibold shadow-sm transition`}
-                                >
-                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                  </svg>
-                                  <span>Edit Order</span>
-                                </button>
-
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setDeletingOrder(row)
-                                  }}
-                                  className="flex items-center justify-center p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg border border-rose-200 transition shadow-sm"
-                                  title="Delete Order"
-                                >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                  </svg>
-                                </button>
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                              {headers.map((key, idx) => {
-                                let val = row[key]
-                                if (key.toLowerCase().includes('status') && val.trim().toLowerCase() === 'inprogress') {
-                                  val = 'In Progress'
-                                }
-                                
-                                const lowerKey = key.toLowerCase()
-                                const isAmountField = isCurrencyField(key)
-                                let displayVal = val
-
-                                // Dynamically compute balance if it's the balance field
-                                if (lowerKey.includes('balance')) {
-                                  const computedNum = calculateBalance(row)
-                                  displayVal = `₱ ${computedNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                                } else if (isAmountField) {
-                                  const num = parseFloat((val || '0').toString().replace(/[^0-9.]/g, '')) || 0
-                                  displayVal = `₱ ${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                                } else {
-                                  displayVal = val || 'Not specified'
-                                }
-
-                                return (
-                                  <div key={idx} className="bg-white p-2.5 rounded-xl border border-slate-200/80 shadow-2xs">
-                                    <span className="block text-[10px] font-semibold text-slate-400 uppercase">{key}</span>
-                                    <span className="font-semibold text-slate-800">{displayVal}</span>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
+        {!isReseller && activeTab === 'customer-orders' && (
+          <CustomerOrder
+            orders={orders}
+            headers={headers}
+            loadingOrders={loadingOrders}
+            filterStatus={filterStatus}
+            setFilterStatus={setFilterStatus}
+            isFilterOpen={isFilterOpen}
+            setIsFilterOpen={setIsFilterOpen}
+            filterRef={filterRef}
+            sortConfig={sortConfig}
+            handleSort={handleSort}
+            resetFilters={resetFilters}
+            sortedOrders={sortedOrders}
+            expandedRowId={expandedRowId}
+            setExpandedRowId={setExpandedRowId}
+            setEditingOrder={setEditingOrder}
+            setDeletingOrder={setDeletingOrder}
+            activeThemeObj={activeThemeObj}
+            getStatusBadge={getStatusBadge}
+            calculateBalance={calculateBalance}
+            isCurrencyField={isCurrencyField}
+          />
         )}
 
-        {/* RESELLER ORDERS TAB */}
+        {activeTab === 'reseller-dashboard' && (
+          <ResellerDashboard 
+            user={user} 
+            activeThemeObj={activeThemeObj} 
+            orders={orders} 
+            setResellerFilterStatus={setResellerFilterStatus}
+            setActiveTab={setActiveTab}
+          />
+        )}
+
         {activeTab === 'reseller-orders' && (
-          <div className="p-8 sm:p-12 text-center bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4 flex flex-col items-center justify-center min-h-[350px]">
-            <div className="relative">
-              <div className="w-20 h-20 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 animate-pulse">
-                <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                </svg>
-              </div>
-              <span className="absolute -bottom-1 -right-1 px-2 py-0.5 bg-amber-500 text-white text-[9px] font-bold rounded-full uppercase tracking-wider">
-                Crafting
-              </span>
-            </div>
-            <div className="max-w-md space-y-1">
-              <h3 className="text-lg font-bold text-slate-900">Reseller Portal Under Construction</h3>
-              <p className="text-xs text-slate-500 leading-relaxed">
-                We are busy building a dedicated wholesale and reseller order management hub. Check back soon for live stock allocation and bulk tracking!
-              </p>
-            </div>
-          </div>
+          <ResellerOrder 
+            user={user} 
+            activeThemeObj={activeThemeObj} 
+            onOrdersUpdate={handleResellerOrdersUpdate} 
+            filterStatus={resellerFilterStatus}
+            setFilterStatus={setResellerFilterStatus}
+          />
+        )}
+        
+        {!isReseller && activeTab === 'my-team' && <MyTeam />}
+        {!isReseller && activeTab === 'our-products' && <OurProduct />}
+        
+        {!isReseller && activeTab === 'payment-options' && (
+          <PaymentOption
+            paymentQRs={paymentQRs}
+            isManagingQR={isManagingQR}
+            setIsManagingQR={setIsManagingQR}
+            handleAddQR={handleAddQR}
+            newBankName={newBankName}
+            setNewBankName={newBankName}
+            setNewQRImage={setNewQRImage}
+            uploadingQR={uploadingQR}
+            handleDeleteQR={handleDeleteQR}
+            setSelectedQR={setSelectedQR}
+            activeThemeObj={activeThemeObj}
+          />
         )}
 
-        {/* MY TEAM TAB */}
-        {activeTab === 'my-team' && (
-          <div className="p-8 sm:p-12 text-center bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4 flex flex-col items-center justify-center min-h-[350px]">
-            <div className="relative">
-              <div className="w-20 h-20 rounded-full bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 animate-bounce">
-                <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                </svg>
-              </div>
-              <span className="absolute -bottom-1 -right-1 px-2 py-0.5 bg-indigo-600 text-white text-[9px] font-bold rounded-full uppercase tracking-wider">
-                In Progress
-              </span>
-            </div>
-            <div className="max-w-md space-y-1">
-              <h3 className="text-lg font-bold text-slate-900">My Team & Attendance Hub</h3>
-              <p className="text-xs text-slate-500 leading-relaxed">
-                Pandayan craftsman schedules, daily attendance check-ins, and shift logs are currently in active development.
-              </p>
-            </div>
-          </div>
-        )}
+        {!isReseller && activeTab === 'about-us' && <AboutUs />}
 
-        {/* PAYMENT OPTIONS TAB */}
-        {activeTab === 'payment-options' && (
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-bold text-slate-900">Payment QR Codes</h3>
-                <p className="text-xs text-slate-500">Tap any QR card to show customers for quick scanning.</p>
-              </div>
-              {paymentQRs.length > 0 && (
-                <button
-                  onClick={() => setIsManagingQR(!isManagingQR)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${isManagingQR ? 'bg-slate-900 text-white border-slate-900' : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'}`}
-                >
-                  {isManagingQR ? 'Done Managing' : 'Manage QR'}
-                </button>
-              )}
-            </div>
-
-            <form onSubmit={handleAddQR} className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Add New Bank / E-Wallet QR</h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Bank / Wallet Label</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Maya, BPI, Maribank..."
-                    value={newBankName}
-                    onChange={(e) => setNewBankName(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">QR Code Image</label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => setNewQRImage(e.target.files[0])}
-                    className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
-                  />
-                </div>
-              </div>
-              <button
-                type="submit"
-                disabled={uploadingQR}
-                className={`px-4 py-2 ${activeThemeObj.primary} text-white rounded-lg text-xs font-semibold shadow-sm transition disabled:opacity-50`}
-              >
-                {uploadingQR ? 'Uploading to Cloud...' : 'Upload Payment QR'}
-              </button>
-            </form>
-
-            {paymentQRs.length === 0 ? (
-              <div className="py-12 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-xl">
-                No payment QR codes added yet. Use the form above to upload your first QR.
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                {paymentQRs.map((qr) => (
-                  <div
-                    key={qr.id}
-                    onClick={() => !isManagingQR && setSelectedQR(qr)}
-                    className={`relative bg-white border border-slate-200 rounded-xl p-4 flex flex-col items-center space-y-3 transition ${!isManagingQR ? 'cursor-pointer hover:border-indigo-400 hover:shadow-md active:scale-98' : ''}`}
-                  >
-                    {isManagingQR && (
-                      <button
-                        onClick={(e) => handleDeleteQR(qr.id, e)}
-                        className="absolute top-2 right-2 bg-rose-500 text-white rounded-full p-1 shadow hover:bg-rose-600 transition"
-                        title="Remove QR"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    )}
-                    <div className="w-28 h-28 bg-slate-50 rounded-lg overflow-hidden flex items-center justify-center border border-slate-100 p-1">
-                      <img src={qr.qrUrl} alt={qr.name} className="w-full h-full object-contain" />
-                    </div>
-                    <span className="font-bold text-slate-900 text-xs text-center">{qr.name}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* SETTINGS TAB */}
-        {activeTab === 'settings' && (
-          <div className="space-y-6">
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-4">
-              <div>
-                <h3 className="text-base font-bold text-slate-900">Workspace Themes</h3>
-                <p className="text-xs text-slate-500">Select a color scheme to customize your workspace.</p>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {[
-                  { id: 'default', colors: ['#4f46e5', '#312e81', '#f8fafc'] },
-                  { id: 'feminine', colors: ['#f43f5e', '#881337', '#fff1f2'] },
-                  { id: 'masculine', colors: ['#059669', '#022c22', '#ecfdf5'] },
-                  { id: 'earth', colors: ['#b45309', '#451a03', '#fffbeb'] },
-                ].map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => setPendingTheme(t.id)}
-                    className={`p-3 rounded-xl border-2 transition flex flex-col items-center space-y-2 ${currentTheme === t.id ? 'border-indigo-600 bg-indigo-50/20' : 'border-slate-200 hover:border-slate-300'}`}
-                  >
-                    <div className="flex space-x-1">
-                      {t.colors.map((c, idx) => (
-                        <div key={idx} className="w-5 h-5 rounded-full border border-black/10" style={{ backgroundColor: c }} />
-                      ))}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-4">
-              <div>
-                <h3 className="text-base font-bold text-slate-900">Security & Credentials</h3>
-                <p className="text-xs text-slate-500">Update your account password.</p>
-              </div>
-
-              {passwordMsg.text && (
-                <div className={`p-3 rounded-xl text-xs font-medium border ${passwordMsg.type === 'error' ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
-                  {passwordMsg.text}
-                </div>
-              )}
-
-              <form onSubmit={handlePasswordChange} className="space-y-3 max-w-sm text-xs">
-                {/* Current Password Field */}
-                <div>
-                  <label className="block font-bold text-slate-600 uppercase text-[10px] mb-1">Current Password</label>
-                  <div className="relative flex items-center">
-                    <input
-                      type={showCurrentPassword ? 'text' : 'password'}
-                      required
-                      value={currentPassword}
-                      onChange={(e) => setCurrentPassword(e.target.value)}
-                      placeholder="Enter current password..."
-                      className="w-full px-3 py-2 pr-10 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                      className="absolute right-3 text-slate-400 hover:text-slate-600 transition focus:outline-none"
-                    >
-                      {showCurrentPassword ? 'Hide' : 'Show'}
-                    </button>
-                  </div>
-                </div>
-
-                {/* New Password Field */}
-                <div>
-                  <label className="block font-bold text-slate-600 uppercase text-[10px] mb-1">New Password</label>
-                  <div className="relative flex items-center">
-                    <input
-                      type={showNewPassword ? 'text' : 'password'}
-                      required
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="Enter new password..."
-                      className="w-full px-3 py-2 pr-10 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowNewPassword(!showNewPassword)}
-                      className="absolute right-3 text-slate-400 hover:text-slate-600 transition focus:outline-none"
-                    >
-                      {showNewPassword ? 'Hide' : 'Show'}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Confirm New Password Field */}
-                <div>
-                  <label className="block font-bold text-slate-600 uppercase text-[10px] mb-1">Confirm New Password</label>
-                  <div className="relative flex items-center">
-                    <input
-                      type={showConfirmPassword ? 'text' : 'password'}
-                      required
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="Confirm new password..."
-                      className="w-full px-3 py-2 pr-10 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      className="absolute right-3 text-slate-400 hover:text-slate-600 transition focus:outline-none"
-                    >
-                      {showConfirmPassword ? 'Hide' : 'Show'}
-                    </button>
-                  </div>
-
-                  {confirmPassword.length > 0 && (
-                    <div className="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold">
-                      {newPassword === confirmPassword ? (
-                        <span className="text-emerald-600">✓ Passwords match</span>
-                      ) : (
-                        <span className="text-rose-600">✕ Passwords do not match</span>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <button
-                  type="submit"
-                  className={`px-4 py-2 ${activeThemeObj.primary} text-white font-semibold text-xs rounded-xl shadow-md transition`}
-                >
-                  Update Password
-                </button>
-              </form>
-            </div>
-          </div>
+        {!isReseller && activeTab === 'settings' && (
+          <Setting
+            currentTheme={currentTheme}
+            setPendingTheme={setPendingTheme}
+            passwordMsg={passwordMsg}
+            handlePasswordChange={handlePasswordChange}
+            showCurrentPassword={showCurrentPassword}
+            setShowCurrentPassword={setShowCurrentPassword}
+            currentPassword={currentPassword}
+            setCurrentPassword={setCurrentPassword}
+            showNewPassword={showNewPassword}
+            setShowNewPassword={setShowNewPassword}
+            newPassword={newPassword}
+            setNewPassword={setNewPassword}
+            showConfirmPassword={showConfirmPassword}
+            setShowConfirmPassword={setShowConfirmPassword}
+            confirmPassword={confirmPassword}
+            setConfirmPassword={setConfirmPassword}
+            activeThemeObj={activeThemeObj}
+          />
         )}
 
       </main>
@@ -1639,9 +1086,7 @@ export default function App({ user, onLogout }) {
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-900">{appAlert.title}</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                {appAlert.message}
-              </p>
+              <p className="text-xs text-slate-500 mt-1">{appAlert.message}</p>
             </div>
             <button
               onClick={() => setAppAlert({ isOpen: false, title: '', message: '', type: 'success' })}
@@ -1649,39 +1094,6 @@ export default function App({ user, onLogout }) {
             >
               OK
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* QR DELETE CONFIRMATION MODAL */}
-      {qrDeleteTarget !== null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-2xl border border-slate-200 space-y-4 animate-fade-in text-center">
-            <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto border border-rose-100">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-slate-900">Remove Payment QR</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Are you sure you want to remove this payment QR code?
-              </p>
-            </div>
-            <div className="flex gap-2 pt-2">
-              <button
-                onClick={() => setQrDeleteTarget(null)}
-                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold text-xs transition"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={(e) => handleDeleteQR(qrDeleteTarget, e)}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs shadow-md transition"
-              >
-                Yes, Remove
-              </button>
-            </div>
           </div>
         </div>
       )}
@@ -1697,9 +1109,7 @@ export default function App({ user, onLogout }) {
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-900">Delete Order</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Are you sure you want to delete this order permanently? This action cannot be undone.
-              </p>
+              <p className="text-xs text-slate-500 mt-1">Are you sure you want to delete this order permanently? This action cannot be undone.</p>
             </div>
             <div className="flex gap-2 pt-2">
               <button
@@ -1754,7 +1164,6 @@ export default function App({ user, onLogout }) {
                 onClick={async () => {
                   setCurrentTheme(pendingTheme)
                   setPendingTheme(null)
-                  // Save theme choice to Supabase user metadata
                   await supabase.auth.updateUser({
                     data: { theme: pendingTheme }
                   })
@@ -1933,8 +1342,6 @@ export default function App({ user, onLogout }) {
                 onClick={async () => {
                   try {
                     const rowId = editingOrder.id
-
-                    // Build clean payload using exact original keys matching Supabase column names
                     const payload = {}
                     const balanceKey = headers.find(h => h.toLowerCase().includes('balance'))
 
@@ -1942,12 +1349,9 @@ export default function App({ user, onLogout }) {
                       const lower = key.toLowerCase()
                       if (key !== 'id' && key !== 'created_at') {
                         let val = editingOrder[key]
-                        
-                        // If it's the balance column, compute it live before saving!
                         if (lower.includes('balance')) {
                           val = calculateBalance(editingOrder)
                         }
-
                         if ((lower.includes('date') || isCurrencyField(key)) && (val === '' || val === undefined || val === null)) {
                           val = null
                         } else if (isCurrencyField(key) && val !== null && val !== undefined && val !== '') {
@@ -1967,7 +1371,6 @@ export default function App({ user, onLogout }) {
                     showAlert('Success', 'Order changes saved successfully!', 'success')
                     setEditingOrder(null)
 
-                    // Refresh orders list keeping consistent sort order
                     const { data, error: fetchError } = await supabase
                       .from('customer-order-table')
                       .select('*')
@@ -2173,7 +1576,7 @@ export default function App({ user, onLogout }) {
       )}
 
       {/* FLOATING ACTION BUTTON */}
-      {(activeTab === 'dashboard' || activeTab === 'customer-orders') && (
+      {!isReseller && (activeTab === 'dashboard' || activeTab === 'customer-orders') && (
         <button
           type="button"
           onClick={() => setIsAddOrderOpen(true)}
