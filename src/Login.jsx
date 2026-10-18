@@ -43,8 +43,8 @@ export default function Login({ onLoginSuccess }) {
     setSuccessMsg('')
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin + '/settings',
-    })
+  redirectTo: 'https://pandayan-ni-daisy.vercel.app/',
+})
 
     setLoading(false)
 
