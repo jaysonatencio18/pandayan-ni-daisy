@@ -1282,9 +1282,14 @@ export default function App({ user, onLogout }) {
                         <span className="absolute left-3 text-slate-400 font-bold">₱</span>
                         <input
                           type="number"
-                          step="any"
+                          inputMode="numeric"
+                          step="1"
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck="false"
                           value={cleanVal}
-                          placeholder="0.00"
+                          placeholder="0"
                           className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
                           onChange={(e) => {
                             setEditingOrder({ ...editingOrder, [key]: e.target.value })
@@ -1508,8 +1513,13 @@ export default function App({ user, onLogout }) {
                         <span className="absolute left-3 text-slate-400 font-bold">₱</span>
                         <input
                           type="number"
-                          step="any"
-                          placeholder="0.00"
+                          inputMode="numeric"
+                          step="1"
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck="false"
+                          placeholder="0"
                           className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
                           onChange={(e) => {
                             const updated = { ...newOrderData, [key]: e.target.value }

@@ -879,13 +879,22 @@ export default function ResellerOrder({ user, activeThemeObj, onOrdersUpdate, fi
 
                 <div className="space-y-1">
                   <label className="font-bold text-slate-600 uppercase text-[10px]">Reseller Price</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={selectedOrder["Reseller Price"] ?? ''}
-                    onChange={(e) => setSelectedOrder({ ...selectedOrder, "Reseller Price": e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 font-medium"
-                  />
+                  <div className="relative flex items-center">
+                    <span className="absolute left-3 text-slate-400 font-bold">₱</span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      step="1"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck="false"
+                      value={selectedOrder["Reseller Price"] ?? ''}
+                      placeholder="0"
+                      onChange={(e) => setSelectedOrder({ ...selectedOrder, "Reseller Price": e.target.value })}
+                      className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 bg-slate-50 font-medium"
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-1">
@@ -1076,8 +1085,13 @@ export default function ResellerOrder({ user, activeThemeObj, onOrdersUpdate, fi
                   <span className="absolute left-3 text-slate-400 font-bold">₱</span>
                   <input
                     type="number"
-                    step="any"
-                    placeholder="0.00"
+                    inputMode="numeric"
+                    step="1"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck="false"
+                    placeholder="0"
                     value={formData["Reseller Price"]}
                     onChange={(e) => setFormData({ ...formData, "Reseller Price": e.target.value })}
                     className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
