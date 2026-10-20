@@ -12,6 +12,8 @@ export default function MainDashboard({
   onHoldCount,
   cancelledCount,
   totalSalesAmount,
+  totalSalesOrdersCount,
+  awaitingPaymentOrdersCount,
   pendingBalanceAmount,
   showTotalSales,
   toggleTotalSales,
@@ -43,22 +45,6 @@ export default function MainDashboard({
         
         {/* Total Sales Card (Left) */}
         {(() => {
-          const totalSalesOrdersCount = orders.filter(o => {
-            const statusEntry = Object.entries(o).find(([k]) => k.toLowerCase().includes('status'))
-            const statusVal = statusEntry ? statusEntry[1].trim().toLowerCase() : ''
-            if (statusVal.includes('cancel')) return false
-
-            const getVal = (predicate) => {
-              const foundKey = Object.keys(o).find(k => predicate(k.toLowerCase()))
-              if (!foundKey) return 0
-              return parseFloat((o[foundKey] || '').toString().replace(/[^0-9.]/g, '')) || 0
-            }
-
-            const downpayment = getVal(k => k.includes('downpayment') || k.includes('down payment'))
-            const payment = getVal(k => k.includes('payment') && !k.includes('down') && !k.includes('mode'))
-            return (downpayment + payment) > 0
-          }).length
-
           const softThemeGradient = {
             default: 'from-indigo-500 via-indigo-400 to-indigo-600',
             feminine: 'from-rose-400 via-pink-400 to-rose-500',
@@ -105,15 +91,6 @@ export default function MainDashboard({
 
         {/* Awaiting Payments Card (Right) */}
         {(() => {
-          const awaitingOrdersCount = orders.filter(o => {
-            const balanceKey = Object.keys(o).find(k => k.toLowerCase().includes('balance'))
-            if (!balanceKey) return true
-            const val = o[balanceKey]
-            if (val === null || val === undefined || val === '' || val === 0 || val === '0' || val === '0.00') return true
-            const num = parseFloat(val.toString().replace(/[^0-9.]/g, '')) || 0
-            return num === 0
-          }).length
-
           const softThemeGradient = {
             default: 'from-indigo-500 via-indigo-400 to-indigo-600',
             feminine: 'from-rose-400 via-pink-400 to-rose-500',
@@ -147,7 +124,7 @@ export default function MainDashboard({
                 </div>
 
                 <div className="text-[13px] sm:text-[15px] font-normal text-white/85 truncate leading-none -mt-1">
-                  {awaitingOrdersCount} {awaitingOrdersCount === 1 ? 'order' : 'orders'}
+                  {awaitingPaymentOrdersCount} {awaitingPaymentOrdersCount === 1 ? 'order' : 'orders'}
                 </div>
               </div>
 

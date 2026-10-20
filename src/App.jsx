@@ -54,13 +54,11 @@ export default function App({ user, onLogout }) {
 
         if (!error && data) {
           if (isReseller) {
-            // Reseller sees count of items pending review or with pending edits
             const count = data.filter(
               o => o.admin_approval === 'For Approval' || o.admin_approval === 'For Edit Approval'
             ).length
             setUnapprovedCount(count)
           } else {
-            // Admin sees all items requiring approval/edit approval
             const count = data.filter(
               o => o.admin_approval === 'For Approval' || o.admin_approval === 'For Edit Approval'
             ).length
@@ -169,7 +167,7 @@ export default function App({ user, onLogout }) {
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' })
   const filterRef = useRef(null)
 
-  const statusOptions = ['Pending', 'In Progress', 'Shipped Out', 'Fully Paid', 'On Hold', 'Cancelled']
+  const statusOptions = ['Pending', 'In Progress', 'Shipped Out', 'Fully Paid', 'On Hold', 'Cancelled', 'Returned']
   const shippingOptions = ['Yes', 'No']
   const paymentModeOptions = ['Cash', 'Gcash', 'BDO', 'BPI', 'Maribank', 'COD', 'COP', 'Walk In']
 
@@ -331,12 +329,12 @@ export default function App({ user, onLogout }) {
         if (error) throw error
 
         if (data && data.length > 0) {
-          const keys = Object.keys(data[0]).filter(k => k.toLowerCase() !== 'id' && k !== 'created_at')
+          const keys = Object.keys(data[0]).filter(k => k.toLowerCase() !== 'id' && k !== 'created_at' && k !== 'original_payment')
           setHeaders(keys)
 
           const formattedData = data.map(item => {
             const rowId = item.id
-            let obj = { id: rowId }
+            let obj = { id: rowId, original_payment: item.original_payment }
             keys.forEach(key => {
               let val = item[key] || ''
               if (key.toLowerCase().includes('status') && val.toLowerCase() === 'inprogress') {
@@ -520,6 +518,9 @@ export default function App({ user, onLogout }) {
       if (!statusEntry) return false
       const val = statusEntry[1].trim().toLowerCase().replace(/\s+/g, '')
       const target = targetStatus.trim().toLowerCase().replace(/\s+/g, '')
+      if (target === 'cancelled') {
+        return val === 'cancelled' || val === 'returned'
+      }
       return val === target
     }).length
   }
@@ -531,37 +532,73 @@ export default function App({ user, onLogout }) {
   const onHoldCount = getStatusCount('On Hold')
   const cancelledCount = getStatusCount('Cancelled')
 
-  const totalSalesAmount = orders.reduce((sum, o) => {
-    const getVal = (predicate) => {
-      const foundKey = Object.keys(o).find(k => predicate(k.toLowerCase()))
-      if (!foundKey) return 0
-      return parseFloat((o[foundKey] || '').toString().replace(/[^0-9.]/g, '')) || 0
+  // Helper to extract numerical values from keys (Strictly excludes original_payment)
+  const getOrderVal = (o, predicate) => {
+    const foundKey = Object.keys(o).find(k => {
+      const lower = k.toLowerCase()
+      if (lower === 'original_payment' || lower.includes('original_payment')) return false
+      return predicate(lower)
+    })
+    if (!foundKey) return 0
+    return parseFloat((o[foundKey] || '').toString().replace(/[^0-9.]/g, '')) || 0
+  }
+
+  // Balance calculation (Live calculation or explicit header fallback)
+  const calculateBalance = (obj) => {
+    const statusEntry = Object.entries(obj).find(([k]) => k.toLowerCase().includes('status'))
+    const statusVal = statusEntry ? statusEntry[1].trim().toLowerCase() : ''
+    if (statusVal.includes('cancel') || statusVal.includes('returned') || statusVal.includes('fully paid')) {
+      return 0
     }
-    const downpayment = getVal(k => k.includes('downpayment') || k.includes('down payment'))
-    const payment = getVal(k => k.includes('payment') && !k.includes('down') && !k.includes('mode'))
+    
+    const explicitBalance = getOrderVal(obj, k => k === 'balance' || k.includes('balance'))
+    if (explicitBalance > 0) return explicitBalance
+
+    const price = getOrderVal(obj, k => k.includes('price') || k.includes('total') || (k.includes('amount') && !k.includes('shipping') && !k.includes('down') && !k.includes('payment'))) || 0
+    const shippingOptionKey = Object.keys(obj).find(k => k.toLowerCase().includes('shipping') && (k.toLowerCase().includes('w/') || k.toLowerCase().includes('with')))
+    const shippingOptionVal = shippingOptionKey ? (obj[shippingOptionKey] || '').toString().trim().toLowerCase() : 'yes'
+    const shippingFeeAmount = (shippingOptionVal === 'yes' || shippingOptionVal === '') ? getOrderVal(obj, k => k.includes('shipping') && !k.includes('w/') && !k.includes('with')) : 0
+    const downpayment = getOrderVal(obj, k => k.includes('downpayment') || k.includes('down payment')) || 0
+    const payment = getOrderVal(obj, k => k.includes('payment') && !k.includes('down') && !k.includes('mode')) || 0
+    const balance = (price + shippingFeeAmount) - (downpayment + payment)
+    return Math.max(0, balance)
+  }
+
+  // Count active orders (excluding Cancelled and Returned)
+  const totalSalesOrdersCount = completedCount + shippedCount + inProgressCount + pendingCount + onHoldCount
+
+  // Count active orders with outstanding balance
+  const awaitingPaymentOrdersCount = orders.filter(o => {
+    const statusEntry = Object.entries(o).find(([k]) => k.toLowerCase().includes('status'))
+    const statusVal = statusEntry ? statusEntry[1].trim().toLowerCase() : ''
+    if (statusVal.includes('cancel') || statusVal.includes('returned') || statusVal.includes('fully paid')) return false
+    return calculateBalance(o) > 0
+  }).length
+
+  // ==========================================
+  // FORMULA 1: Total Sales = downpayment + payment (excluding original_payment, returned, cancelled)
+  // ==========================================
+  const totalSalesAmount = orders.reduce((sum, o) => {
+    const statusEntry = Object.entries(o).find(([k]) => k.toLowerCase().includes('status'))
+    const statusVal = statusEntry ? statusEntry[1].trim().toLowerCase() : ''
+    if (statusVal.includes('cancel') || statusVal.includes('returned')) return sum
+
+    const downpayment = getOrderVal(o, k => k.includes('downpayment') || k.includes('down payment'))
+    const payment = getOrderVal(o, k => k.includes('payment') && !k.includes('down') && !k.includes('mode'))
     return sum + downpayment + payment
   }, 0)
 
-  const totalActivePrice = orders.reduce((sum, o) => {
+  // ==========================================
+  // FORMULA 2: Awaiting Payment = sum of all balance column (all status except returned and cancelled)
+  // ==========================================
+  const pendingBalanceAmount = orders.reduce((sum, o) => {
     const statusEntry = Object.entries(o).find(([k]) => k.toLowerCase().includes('status'))
     const statusVal = statusEntry ? statusEntry[1].trim().toLowerCase() : ''
-    if (statusVal.includes('cancel')) return sum
+    if (statusVal.includes('cancel') || statusVal.includes('returned')) return sum
 
-    const getVal = (predicate) => {
-      const foundKey = Object.keys(o).find(k => predicate(k.toLowerCase()))
-      if (!foundKey) return 0
-      return parseFloat((o[foundKey] || '').toString().replace(/[^0-9.]/g, '')) || 0
-    }
-
-    const price = getVal(k => k.includes('price') || k.includes('total') || (k.includes('amount') && !k.includes('shipping') && !k.includes('down') && !k.includes('payment'))) || 0
-    const shippingOptionKey = Object.keys(o).find(k => k.toLowerCase().includes('shipping') && (k.toLowerCase().includes('w/') || k.toLowerCase().includes('with')))
-    const shippingOptionVal = shippingOptionKey ? (o[shippingOptionKey] || '').toString().trim().toLowerCase() : 'yes'
-    const shippingFeeAmount = (shippingOptionVal === 'yes' || shippingOptionVal === '') ? getVal(k => k.includes('shipping') && !k.includes('w/') && !k.includes('with')) : 0
-
-    return sum + price + shippingFeeAmount
+    const balance = calculateBalance(o)
+    return sum + balance
   }, 0)
-
-  const pendingBalanceAmount = Math.max(0, totalActivePrice - totalSalesAmount)
 
   const orderHeader = headers.find(h => h.toLowerCase().includes('order')) || headers[1] || 'Order'
   const dateHeaders = headers.filter(h => h.toLowerCase().includes('date') || h.toLowerCase().includes('ship'))
@@ -660,7 +697,7 @@ export default function App({ user, onLogout }) {
     if (s.includes('shipped')) return 'bg-emerald-50 text-emerald-700 border-emerald-200'
     if (s.includes('progress')) return 'bg-sky-50 text-sky-700 border-sky-200'
     if (s.includes('hold')) return 'bg-amber-50 text-amber-700 border-amber-200'
-    if (s.includes('cancel')) return 'bg-rose-50 text-rose-700 border-rose-200'
+    if (s.includes('cancel') || s.includes('returned')) return 'bg-rose-50 text-rose-700 border-rose-200'
     return 'bg-slate-100 text-slate-700 border-slate-200'
   }
 
@@ -688,6 +725,11 @@ export default function App({ user, onLogout }) {
     if (!statusEntry) return false
     const val = statusEntry[1].trim().toLowerCase().replace(/\s+/g, '')
     const target = filterStatus.trim().toLowerCase().replace(/\s+/g, '')
+    
+    if (target === 'cancelled') {
+      return val === 'cancelled' || val === 'returned'
+    }
+
     return val === target
   })
 
@@ -699,28 +741,6 @@ export default function App({ user, onLogout }) {
     if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1
     return 0
   })
-
-  const calculateBalance = (obj) => {
-    const statusEntry = Object.entries(obj).find(([k]) => k.toLowerCase().includes('status'))
-    const statusVal = statusEntry ? statusEntry[1].trim().toLowerCase() : ''
-    if (statusVal.includes('cancel')) {
-      return 0
-    }
-    const getVal = (predicate) => {
-      const foundKey = Object.keys(obj).find(k => predicate(k.toLowerCase()))
-      if (!foundKey) return 0
-      const val = obj[foundKey]
-      return parseFloat((val || '0').toString().replace(/[^0-9.]/g, '')) || 0
-    }
-    const price = getVal(k => k.includes('price') || k.includes('total') || (k.includes('amount') && !k.includes('shipping') && !k.includes('down') && !k.includes('payment'))) || 0
-    const shippingOptionKey = Object.keys(obj).find(k => k.toLowerCase().includes('shipping') && (k.toLowerCase().includes('w/') || k.toLowerCase().includes('with')))
-    const shippingOptionVal = shippingOptionKey ? (obj[shippingOptionKey] || '').toString().trim().toLowerCase() : 'yes'
-    const shippingFeeAmount = (shippingOptionVal === 'yes' || shippingOptionVal === '') ? getVal(k => k.includes('shipping') && !k.includes('w/') && !k.includes('with')) : 0
-    const downpayment = getVal(k => k.includes('downpayment') || k.includes('down payment')) || 0
-    const payment = getVal(k => k.includes('payment') && !k.includes('down') && !k.includes('mode')) || 0
-    const balance = (price + shippingFeeAmount) - (downpayment + payment)
-    return Math.max(0, balance)
-  }
 
   const isCurrencyField = (keyName) => {
     const k = keyName.toLowerCase()
@@ -735,6 +755,7 @@ export default function App({ user, onLogout }) {
     let formattedNewOrder = { ...newOrderData }
     delete formattedNewOrder.id
     delete formattedNewOrder.created_at
+    delete formattedNewOrder.original_payment
     if (balanceKey) delete formattedNewOrder[balanceKey]
 
     const insertPayload = {}
@@ -766,7 +787,7 @@ export default function App({ user, onLogout }) {
     } else if (data) {
       const insertedItem = data[0]
       const rowId = insertedItem.id
-      let newObj = { id: rowId }
+      let newObj = { id: rowId, original_payment: insertedItem.original_payment }
       headers.forEach(key => {
         let val = insertedItem[key] || ''
         if (key.toLowerCase().includes('status') && val.toLowerCase() === 'inprogress') {
@@ -922,7 +943,6 @@ export default function App({ user, onLogout }) {
                       <span>{item.label}</span>
                     </div>
 
-                    {/* Notification Count Badge visible to both Admin and Reseller */}
                     {item.id === 'reseller-orders' && unapprovedCount > 0 && (
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500 text-white shadow-xs">
                         {unapprovedCount}
@@ -965,6 +985,8 @@ export default function App({ user, onLogout }) {
             onHoldCount={onHoldCount}
             cancelledCount={cancelledCount}
             totalSalesAmount={totalSalesAmount}
+            totalSalesOrdersCount={totalSalesOrdersCount}
+            awaitingPaymentOrdersCount={awaitingPaymentOrdersCount}
             pendingBalanceAmount={pendingBalanceAmount}
             showTotalSales={showTotalSales}
             toggleTotalSales={toggleTotalSales}
@@ -1181,7 +1203,7 @@ export default function App({ user, onLogout }) {
       {editingOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
           <div className="bg-white rounded-2xl p-5 max-w-lg w-full shadow-2xl border border-slate-200 space-y-4 max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center justify-center sm:justify-between border-b border-slate-100 pb-3">
               <h3 className="text-sm font-bold text-slate-900">Edit Order Details</h3>
               <button onClick={() => setEditingOrder(null)} className="text-slate-400 hover:text-slate-600 text-sm font-bold">✕</button>
             </div>
@@ -1220,8 +1242,39 @@ export default function App({ user, onLogout }) {
                       <select
                         value={currentVal}
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
-                        onChange={(e) => { 
-                          setEditingOrder({ ...editingOrder, [key]: e.target.value })
+                        onChange={(e) => {
+                          const newStatus = e.target.value
+                          let updatedOrder = { ...editingOrder, [key]: newStatus }
+                          
+                          const paymentKey = headers.find(h => h.toLowerCase().includes('payment') && !h.toLowerCase().includes('down') && !h.toLowerCase().includes('mode') && !h.toLowerCase().includes('original'))
+                          const originalItem = orders.find(o => o.id === editingOrder.id) || {}
+                          
+                          const price = getOrderVal(updatedOrder, k => k.includes('price') || k.includes('total') || (k.includes('amount') && !k.includes('shipping') && !k.includes('down') && !k.includes('payment')))
+                          const shippingOptionKey = Object.keys(updatedOrder).find(k => k.toLowerCase().includes('shipping') && (k.toLowerCase().includes('w/') || k.toLowerCase().includes('with')))
+                          const shippingOptionVal = shippingOptionKey ? (updatedOrder[shippingOptionKey] || '').toString().trim().toLowerCase() : 'yes'
+                          const shippingFeeAmount = (shippingOptionVal === 'yes' || shippingOptionVal === '') ? getOrderVal(updatedOrder, k => k.includes('shipping') && !k.includes('w/') && !k.includes('with')) : 0
+                          const downpayment = getOrderVal(updatedOrder, k => k.includes('downpayment') || k.includes('down payment'))
+                          const currentPayment = getOrderVal(updatedOrder, k => k.includes('payment') && !k.includes('down') && !k.includes('mode'))
+
+                          if (newStatus.toLowerCase().includes('fully paid')) {
+                            const outstandingBalance = (price + shippingFeeAmount) - (downpayment + currentPayment)
+                            if (paymentKey && outstandingBalance > 0) {
+                              updatedOrder.original_payment = currentPayment
+                              updatedOrder[paymentKey] = currentPayment + outstandingBalance
+                            }
+                          } 
+                          else if (currentVal.toLowerCase().includes('fully paid') && !newStatus.toLowerCase().includes('fully paid')) {
+                            const savedOriginal = updatedOrder.original_payment !== undefined && updatedOrder.original_payment !== null 
+                              ? parseFloat(updatedOrder.original_payment) 
+                              : getOrderVal(originalItem, k => k.includes('payment') && !k.includes('down') && !k.includes('mode'))
+                            
+                            if (paymentKey && !isNaN(savedOriginal)) {
+                              updatedOrder[paymentKey] = savedOriginal
+                              updatedOrder.original_payment = null
+                            }
+                          }
+
+                          setEditingOrder(updatedOrder)
                         }}
                       >
                         <option value="">Select Status...</option>
@@ -1348,7 +1401,6 @@ export default function App({ user, onLogout }) {
                   try {
                     const rowId = editingOrder.id
                     const payload = {}
-                    const balanceKey = headers.find(h => h.toLowerCase().includes('balance'))
 
                     Object.keys(editingOrder).forEach(key => {
                       const lower = key.toLowerCase()
@@ -1365,6 +1417,7 @@ export default function App({ user, onLogout }) {
                         payload[key] = val
                       }
                     })
+                    payload['original_payment'] = editingOrder.original_payment !== undefined ? editingOrder.original_payment : null
 
                     const { error } = await supabase
                       .from('customer-order-table')
@@ -1383,7 +1436,7 @@ export default function App({ user, onLogout }) {
 
                     if (!fetchError && data) {
                       setOrders(data.map(item => {
-                        let obj = { id: item.id }
+                        let obj = { id: item.id, original_payment: item.original_payment }
                         headers.forEach(key => {
                           let val = item[key] || ''
                           if (key.toLowerCase().includes('status') && val.toLowerCase() === 'inprogress') {
@@ -1447,7 +1500,25 @@ export default function App({ user, onLogout }) {
                       <select
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
                         onChange={(e) => { 
-                          const updated = { ...newOrderData, [key]: e.target.value }
+                          const newStatus = e.target.value
+                          let updated = { ...newOrderData, [key]: newStatus }
+                          
+                          if (newStatus.toLowerCase().includes('fully paid')) {
+                            const paymentKey = headers.find(h => h.toLowerCase().includes('payment') && !h.toLowerCase().includes('down') && !h.toLowerCase().includes('mode') && !h.toLowerCase().includes('original'))
+                            const price = getOrderVal(updated, k => k.includes('price') || k.includes('total') || (k.includes('amount') && !k.includes('shipping') && !k.includes('down') && !k.includes('payment')))
+                            const shippingOptionKey = Object.keys(updated).find(k => k.toLowerCase().includes('shipping') && (k.toLowerCase().includes('w/') || k.toLowerCase().includes('with')))
+                            const shippingOptionVal = shippingOptionKey ? (updated[shippingOptionKey] || '').toString().trim().toLowerCase() : 'yes'
+                            const shippingFeeAmount = (shippingOptionVal === 'yes' || shippingOptionVal === '') ? getOrderVal(updated, k => k.includes('shipping') && !k.includes('w/') && !k.includes('with')) : 0
+                            const downpayment = getOrderVal(updated, k => k.includes('downpayment') || k.includes('down payment'))
+                            const currentPayment = getOrderVal(updated, k => k.includes('payment') && !k.includes('down') && !k.includes('mode'))
+                            
+                            const outstandingBalance = (price + shippingFeeAmount) - (downpayment + currentPayment)
+                            if (paymentKey && outstandingBalance > 0) {
+                              updated.original_payment = currentPayment
+                              updated[paymentKey] = currentPayment + outstandingBalance
+                            }
+                          }
+
                           const balanceKey = headers.find(h => h.toLowerCase().includes('balance'))
                           if (balanceKey) {
                             updated[balanceKey] = calculateBalance(updated).toFixed(2)
