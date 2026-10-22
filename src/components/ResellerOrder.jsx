@@ -553,6 +553,10 @@ export default function ResellerOrder({ user, activeThemeObj, onOrdersUpdate, fi
               placeholder="Search Order #, Item..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck="false"
               className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-slate-850 shadow-xs"
             />
             {searchQuery && (
@@ -857,6 +861,10 @@ export default function ResellerOrder({ user, activeThemeObj, onOrdersUpdate, fi
                     required
                     value={selectedOrder["Reseller Order Item"]}
                     onChange={(e) => setSelectedOrder({ ...selectedOrder, "Reseller Order Item": e.target.value })}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck="false"
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 font-medium"
                   />
                 </div>
@@ -957,6 +965,10 @@ export default function ResellerOrder({ user, activeThemeObj, onOrdersUpdate, fi
                     rows="2"
                     value={selectedOrder["Reseller Notes"] || ''}
                     onChange={(e) => setSelectedOrder({ ...selectedOrder, "Reseller Notes": e.target.value })}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck="false"
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 font-medium"
                   />
                 </div>
@@ -1008,6 +1020,10 @@ export default function ResellerOrder({ user, activeThemeObj, onOrdersUpdate, fi
                   required
                   value={formData["Reseller Order #"]}
                   onChange={(e) => setFormData({ ...formData, "Reseller Order #": e.target.value })}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck="false"
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
@@ -1025,6 +1041,10 @@ export default function ResellerOrder({ user, activeThemeObj, onOrdersUpdate, fi
                     setProductSearch(e.target.value)
                     setShowProductDropdown(true)
                   }}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck="false"
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
                 />
                 {showProductDropdown && filteredProductSuggestions.length > 0 && (
@@ -1150,6 +1170,10 @@ export default function ResellerOrder({ user, activeThemeObj, onOrdersUpdate, fi
                   placeholder="Notes..."
                   value={formData["Reseller Notes"]}
                   onChange={(e) => setFormData({ ...formData, "Reseller Notes": e.target.value })}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck="false"
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
                 />
               </div>

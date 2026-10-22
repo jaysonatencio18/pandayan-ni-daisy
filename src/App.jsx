@@ -34,10 +34,10 @@ export default function App({ user, onLogout }) {
 
   // Ensure active tab switches if role changes on login and saved tab isn't valid for reseller
   useEffect(() => {
-    if (isReseller && activeTab !== 'reseller-dashboard' && activeTab !== 'reseller-orders') {
+    if (isReseller && activeTab !== 'reseller-dashboard' && activeTab !== 'reseller-orders' && activeTab !== 'settings') {
       setActiveTab('reseller-dashboard')
     }
-  }, [isReseller])
+  }, [isReseller, activeTab])
 
   const [showAmount, setShowAmount] = useState(false)
 
@@ -512,7 +512,7 @@ export default function App({ user, onLogout }) {
   ]
 
   const navItems = isReseller
-    ? allNavItems.filter(item => item.id === 'reseller-dashboard' || item.id === 'reseller-orders')
+    ? allNavItems.filter(item => item.id === 'reseller-dashboard' || item.id === 'reseller-orders' || item.id === 'settings')
     : allNavItems
 
   const getStatusCount = (targetStatus) => {
@@ -1073,7 +1073,7 @@ export default function App({ user, onLogout }) {
 
         {!isReseller && activeTab === 'about-us' && <AboutUs />}
 
-        {!isReseller && activeTab === 'settings' && (
+        {activeTab === 'settings' && (
           <Setting
             currentTheme={currentTheme}
             setPendingTheme={setPendingTheme}
@@ -1668,7 +1668,7 @@ export default function App({ user, onLogout }) {
           type="button"
           onClick={() => {
             if (activeTab === 'reseller-dashboard' || activeTab === 'reseller-orders') {
-              setActiveTab('reseller-orders') // Automatically switch to Reseller Orders tab so the modal renders!
+              setActiveTab('reseller-orders')
               setIsAddOrderOpenReseller(true)
             } else {
               setIsAddOrderOpen(true)
@@ -1676,8 +1676,8 @@ export default function App({ user, onLogout }) {
           }}
           className={`fixed bottom-6 right-6 z-30 h-10 w-10 ${
             (activeTab === 'reseller-dashboard' || activeTab === 'reseller-orders')
-              ? 'rounded-2xl' // Rounded square shape for Reseller tabs
-              : 'rounded-full'  // Circle shape for Customer/Main tabs
+              ? 'rounded-2xl'
+              : 'rounded-full'
           } ${activeThemeObj.primary} text-white shadow-lg flex items-center justify-center transition active:scale-95 ring-2 ring-white`}
           title={(activeTab === 'reseller-dashboard' || activeTab === 'reseller-orders') ? "Add New Reseller Order" : "Add New Order"}
         >
