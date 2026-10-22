@@ -42,10 +42,10 @@ export default function CustomerOrder({
   })
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-4">
+    <div className="space-y-4">
       
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between border-b border-slate-100 pb-3 gap-3 relative">
-        <h3 className="text-base font-bold text-slate-900">Customer Orders</h3>
+        <h3 className="text-lg font-bold text-slate-900 tracking-tight">Customer Orders</h3>
         
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
           {/* Search Field */}
@@ -60,7 +60,7 @@ export default function CustomerOrder({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search Name, Item, Tracking..."
-              className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-slate-800"
+              className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-slate-850 shadow-xs"
             />
             {searchQuery && (
               <button
@@ -75,7 +75,7 @@ export default function CustomerOrder({
           <div className="flex items-center gap-2" ref={filterRef}>
             <button
               onClick={() => { resetFilters(); setSearchQuery(''); }}
-              className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition border border-slate-200"
+              className="p-2.5 bg-white hover:bg-slate-50 text-slate-600 rounded-xl transition border border-slate-200 shadow-xs"
               title="Reset Filters & Sorting"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -86,14 +86,14 @@ export default function CustomerOrder({
             <div className="relative">
               <button
                 onClick={() => setIsFilterOpen(!isFilterOpen)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition shadow-2xs border ${
+                className={`flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold rounded-xl transition shadow-xs border ${
                   filterStatus.toLowerCase().includes('fully paid') ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
                   filterStatus.toLowerCase().includes('shipped') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
                   filterStatus.toLowerCase().includes('progress') ? 'bg-sky-50 text-sky-700 border-sky-200' :
                   filterStatus.toLowerCase().includes('hold') ? 'bg-amber-50 text-amber-700 border-amber-200' :
                   filterStatus.toLowerCase().includes('cancel') || filterStatus.toLowerCase().includes('returned') ? 'bg-rose-50 text-rose-700 border-rose-200' :
                   filterStatus.toLowerCase().includes('pending') ? 'bg-slate-100 text-slate-800 border-slate-200' :
-                  activeThemeObj.badgeBg
+                  'bg-white text-slate-700 border-slate-200'
                 }`}
               >
                 <span>{filterStatus} ({finalFilteredOrders.length})</span>
@@ -137,31 +137,31 @@ export default function CustomerOrder({
       ) : finalFilteredOrders.length === 0 ? (
         <div className="py-12 text-center text-xs text-slate-400">No records found matching your filters.</div>
       ) : (
-        <div className="border border-slate-200 rounded-xl overflow-hidden">
-          <div className="sticky top-0 z-30 bg-slate-100 border-b border-slate-200 px-3.5 py-2.5 grid grid-cols-3 gap-2 text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="sticky top-0 z-30 bg-slate-50 border-b border-slate-200 px-3.5 py-2.5 grid grid-cols-3 gap-2 text-[10px] font-semibold uppercase tracking-wider text-slate-600 select-none">
             <button onClick={() => handleSort(nameHeader)} className="flex items-center gap-1 text-left hover:text-slate-900 transition truncate">
               <span>Name</span>
               {sortConfig.key === nameHeader && (
-                <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                <span>{sortConfig.direction === 'asc' ? '▲' : '▼'}</span>
               )}
             </button>
 
             <button onClick={() => handleSort(dateHeader)} className="flex items-center gap-1 text-left hover:text-slate-900 transition truncate">
               <span>Date Order</span>
               {sortConfig.key === dateHeader && (
-                <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                <span>{sortConfig.direction === 'asc' ? '▲' : '▼'}</span>
               )}
             </button>
 
             <button onClick={() => handleSort(orderHeader)} className="flex items-center justify-end sm:justify-start gap-1 text-right sm:text-left hover:text-slate-900 transition truncate">
               <span>Order</span>
               {sortConfig.key === orderHeader && (
-                <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                <span>{sortConfig.direction === 'asc' ? '▲' : '▼'}</span>
               )}
             </button>
           </div>
 
-          <div className="max-h-[550px] overflow-y-auto">
+          <div className="max-h-[65vh] overflow-y-auto">
             {finalFilteredOrders.map((row) => {
               const isExpanded = expandedRowId === row.id
               const statusKey = headers.find(h => h.toLowerCase().includes('status'))
@@ -177,7 +177,7 @@ export default function CustomerOrder({
                 <div key={row.id} className="border-b border-slate-100 last:border-0">
                   <div
                     onClick={() => setExpandedRowId(isExpanded ? null : row.id)}
-                    className="grid grid-cols-3 gap-2 p-3.5 items-center hover:bg-slate-50 cursor-pointer transition"
+                    className="grid grid-cols-3 gap-2 p-3.5 items-center hover:bg-indigo-50/50 cursor-pointer transition"
                   >
                     <div className="font-bold text-slate-900 text-xs sm:text-sm truncate">
                       {customerName}
@@ -189,7 +189,7 @@ export default function CustomerOrder({
 
                     <div className="flex flex-col items-end sm:items-start space-y-1 truncate">
                       {statusKey && (
-                        <span className={`inline-block px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border ${getStatusBadge(statusVal)}`}>
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${getStatusBadge(statusVal)}`}>
                           {statusVal}
                         </span>
                       )}

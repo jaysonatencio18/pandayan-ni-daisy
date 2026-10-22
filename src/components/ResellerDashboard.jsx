@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 
-export default function ResellerDashboard({ user, activeThemeObj, setResellerFilterStatus, setActiveTab }) {
+export default function ResellerDashboard({ user, activeThemeObj, setResellerFilterStatus, setActiveTab, greeting }) {
   const [orders, setOrders] = useState([])
   const [activities, setActivities] = useState([])
   const [loading, setLoading] = useState(true)
@@ -213,7 +213,7 @@ export default function ResellerDashboard({ user, activeThemeObj, setResellerFil
       <div className="bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-sm">
         <div>
           <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-2">
-            <span>Good day, {displayName}!</span>
+            <span>{greeting || 'Good day'}, {displayName}!</span>
             <span className="animate-bounce">👋</span>
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">

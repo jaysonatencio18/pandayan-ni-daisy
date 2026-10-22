@@ -138,6 +138,9 @@ export default function App({ user, onLogout }) {
   const [isAddOrderOpen, setIsAddOrderOpen] = useState(false)
   const [newOrderData, setNewOrderData] = useState({})
 
+  // Reseller Add Order Modal State
+  const [isAddOrderOpenReseller, setIsAddOrderOpenReseller] = useState(false)
+
   // Custom App Notification Modal State
   const [appAlert, setAppAlert] = useState({ isOpen: false, title: '', message: '', type: 'success' })
   const [qrDeleteTarget, setQrDeleteTarget] = useState(null)
@@ -1033,6 +1036,7 @@ export default function App({ user, onLogout }) {
             orders={orders} 
             setResellerFilterStatus={setResellerFilterStatus}
             setActiveTab={setActiveTab}
+            greeting={greeting}
           />
         )}
 
@@ -1043,6 +1047,8 @@ export default function App({ user, onLogout }) {
             onOrdersUpdate={handleResellerOrdersUpdate} 
             filterStatus={resellerFilterStatus}
             setFilterStatus={setResellerFilterStatus}
+            isAddOpen={isAddOrderOpenReseller}
+            setIsAddOpen={setIsAddOrderOpenReseller}
           />
         )}
         
@@ -1657,12 +1663,23 @@ export default function App({ user, onLogout }) {
       )}
 
       {/* FLOATING ACTION BUTTON */}
-      {!isReseller && (activeTab === 'dashboard' || activeTab === 'customer-orders') && (
+      {(activeTab === 'dashboard' || activeTab === 'customer-orders' || activeTab === 'reseller-dashboard' || activeTab === 'reseller-orders') && (
         <button
           type="button"
-          onClick={() => setIsAddOrderOpen(true)}
-          className={`fixed bottom-6 right-6 z-30 h-10 w-10 rounded-full ${activeThemeObj.primary} text-white shadow-lg flex items-center justify-center transition active:scale-95 ring-2 ring-white`}
-          title="Add New Order"
+          onClick={() => {
+            if (activeTab === 'reseller-dashboard' || activeTab === 'reseller-orders') {
+              setActiveTab('reseller-orders') // Automatically switch to Reseller Orders tab so the modal renders!
+              setIsAddOrderOpenReseller(true)
+            } else {
+              setIsAddOrderOpen(true)
+            }
+          }}
+          className={`fixed bottom-6 right-6 z-30 h-10 w-10 ${
+            (activeTab === 'reseller-dashboard' || activeTab === 'reseller-orders')
+              ? 'rounded-2xl' // Rounded square shape for Reseller tabs
+              : 'rounded-full'  // Circle shape for Customer/Main tabs
+          } ${activeThemeObj.primary} text-white shadow-lg flex items-center justify-center transition active:scale-95 ring-2 ring-white`}
+          title={(activeTab === 'reseller-dashboard' || activeTab === 'reseller-orders') ? "Add New Reseller Order" : "Add New Order"}
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" />

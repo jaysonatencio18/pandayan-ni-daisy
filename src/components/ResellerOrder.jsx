@@ -16,7 +16,7 @@ const toSentenceCase = (str) => {
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase()
 }
 
-export default function ResellerOrder({ user, activeThemeObj, onOrdersUpdate, filterStatus, setFilterStatus }) {
+export default function ResellerOrder({ user, activeThemeObj, onOrdersUpdate, filterStatus, setFilterStatus, isAddOpen, setIsAddOpen }) {
   const theme = activeThemeObj || { primary: 'bg-indigo-600 hover:bg-indigo-500' }
 
   const userRole = user?.user_metadata?.role || 'admin'
@@ -24,7 +24,6 @@ export default function ResellerOrder({ user, activeThemeObj, onOrdersUpdate, fi
 
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
-  const [isAddOpen, setIsAddOpen] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [isEditing, setIsEditing] = useState(false)
 
@@ -34,7 +33,8 @@ export default function ResellerOrder({ user, activeThemeObj, onOrdersUpdate, fi
   const [productSearch, setProductSearch] = useState('')
   const [showProductDropdown, setShowProductDropdown] = useState(false)
 
-  // Filter & Sorting State
+  // Search & Filter & Sorting State
+  const [searchQuery, setSearchQuery] = useState('')
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' })
   const filterRef = useRef(null)
@@ -102,34 +102,35 @@ export default function ResellerOrder({ user, activeThemeObj, onOrdersUpdate, fi
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const handleOpenAddModal = () => {
-    let nextNumStr = "0001"
-    if (orders.length > 0) {
-      const numericValues = orders
-        .map(o => parseInt(o["Reseller Order #"], 10))
-        .filter(n => !isNaN(n))
+  useEffect(() => {
+    if (isAddOpen) {
+      let nextNumStr = "0001"
+      if (orders.length > 0) {
+        const numericValues = orders
+          .map(o => parseInt(o["Reseller Order #"], 10))
+          .filter(n => !isNaN(n))
 
-      if (numericValues.length > 0) {
-        const maxNum = Math.max(...numericValues)
-        nextNumStr = String(maxNum + 1).padStart(4, '0')
+        if (numericValues.length > 0) {
+          const maxNum = Math.max(...numericValues)
+          nextNumStr = String(maxNum + 1).padStart(4, '0')
+        }
       }
-    }
 
-    setFormData({
-      "Reseller Order #": nextNumStr,
-      "Reseller Order Item": "",
-      "Reseller Item Status": "MOT",
-      "Reseller MOP": "",
-      "Reseller Order Date": new Date().toISOString().split('T')[0],
-      "Reseller Order Status": isAdmin ? "Pending" : "New Order",
-      "Reseller Price": "",
-      "Reseller Date Ship": "",
-      "Reseller Turnover Date": "",
-      "Reseller Notes": ""
-    })
-    setProductSearch('')
-    setIsAddOpen(true)
-  }
+      setFormData({
+        "Reseller Order #": nextNumStr,
+        "Reseller Order Item": "",
+        "Reseller Item Status": "MOT",
+        "Reseller MOP": "",
+        "Reseller Order Date": new Date().toISOString().split('T')[0],
+        "Reseller Order Status": isAdmin ? "Pending" : "New Order",
+        "Reseller Price": "",
+        "Reseller Date Ship": "",
+        "Reseller Turnover Date": "",
+        "Reseller Notes": ""
+      })
+      setProductSearch('')
+    }
+  }, [isAddOpen, orders, isAdmin])
 
   const [formData, setFormData] = useState({
     "Reseller Order #": "0001",
@@ -469,6 +470,7 @@ export default function ResellerOrder({ user, activeThemeObj, onOrdersUpdate, fi
   }
 
   const resetFilters = () => {
+    setSearchQuery('')
     if (setFilterStatus) setFilterStatus('ALL Orders')
     setSortConfig({ key: null, direction: 'asc' })
   }
@@ -500,6 +502,15 @@ export default function ResellerOrder({ user, activeThemeObj, onOrdersUpdate, fi
   const activeFilter = filterStatus || 'ALL Orders'
 
   const filteredOrders = orders.filter(o => {
+    if (searchQuery.trim() !== '') {
+      const q = searchQuery.toLowerCase().trim()
+      const orderNum = (o["Reseller Order #"] || '').toLowerCase()
+      const itemName = (o["Reseller Order Item"] || '').toLowerCase()
+      if (!orderNum.includes(q) && !itemName.includes(q)) {
+        return false
+      }
+    }
+
     if (activeFilter === 'ALL Orders') return true
     if (activeFilter === 'For Approval') {
       return o.admin_approval === 'For Approval' || o.admin_approval === 'For Edit Approval'
@@ -525,15 +536,37 @@ export default function ResellerOrder({ user, activeThemeObj, onOrdersUpdate, fi
   const activeCount = filteredOrders.length
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-bold text-slate-900 tracking-tight">Reseller Orders</h2>
-          <p className="text-xs text-slate-500">Manage and track orders submitted by authorized resellers.</p>
-        </div>
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-3 relative">
+        <h2 className="text-lg font-bold text-slate-900 tracking-tight">Reseller Orders</h2>
 
-        <div className="flex items-center space-x-2">
-          {/* 1. Reset / Refresh Button */}
+        <div className="flex items-center space-x-2 flex-wrap gap-y-2">
+          {/* Search Bar Input */}
+          <div className="relative flex-1 sm:w-56">
+            <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </span>
+            <input
+              type="text"
+              placeholder="Search Order #, Item..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-slate-850 shadow-xs"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute inset-y-0 right-0 flex items-center pr-2.5 text-slate-400 hover:text-slate-600 text-xs font-bold"
+                title="Clear search"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Reset / Refresh Button */}
           <button
             onClick={resetFilters}
             className="p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition shadow-xs"
@@ -544,11 +577,11 @@ export default function ResellerOrder({ user, activeThemeObj, onOrdersUpdate, fi
             </svg>
           </button>
 
-          {/* 2. Neutral Filter Button */}
+          {/* Neutral Filter Button */}
           <div className="relative" ref={filterRef}>
             <button
               onClick={() => setIsFilterOpen(!isFilterOpen)}
-              className="flex items-center space-x-2 px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition shadow-xs"
+              className="flex items-center space-x-2 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition shadow-xs"
             >
               <span>{activeFilter} ({activeCount})</span>
               <svg className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isFilterOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -578,45 +611,33 @@ export default function ResellerOrder({ user, activeThemeObj, onOrdersUpdate, fi
               </div>
             )}
           </div>
-
-          {/* 3. Add Order Button */}
-          <button
-            onClick={handleOpenAddModal}
-            className={`px-4 py-2.5 rounded-xl ${theme.primary} text-white font-semibold text-xs shadow-md transition active:scale-95 flex items-center space-x-2`}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" />
-            </svg>
-            <span>Add Order</span>
-          </button>
         </div>
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="sticky top-0 z-30 bg-slate-50 border-b border-slate-200 px-3.5 py-2.5 grid grid-cols-3 gap-2 text-[10px] font-semibold uppercase tracking-wider text-slate-600 select-none">
+          <button onClick={() => handleSort('Reseller Order #')} className="flex items-center gap-1 text-left hover:text-slate-900 transition truncate">
+            <span>Order #</span>
+            {sortConfig.key === 'Reseller Order #' && (
+              <span>{sortConfig.direction === 'asc' ? '▲' : '▼'}</span>
+            )}
+          </button>
+          <button onClick={() => handleSort('Reseller Order Date')} className="flex items-center gap-1 text-left hover:text-slate-900 transition truncate">
+            <span>Order Date</span>
+            {sortConfig.key === 'Reseller Order Date' && (
+              <span>{sortConfig.direction === 'asc' ? '▲' : '▼'}</span>
+            )}
+          </button>
+          <button onClick={() => handleSort('Reseller Order Item')} className="flex items-center gap-1 text-left hover:text-slate-900 transition truncate">
+            <span>Order Item</span>
+            {sortConfig.key === 'Reseller Order Item' && (
+              <span>{sortConfig.direction === 'asc' ? '▲' : '▼'}</span>
+            )}
+          </button>
+        </div>
+
         <div className="max-h-[65vh] overflow-y-auto">
           <table className="w-full text-left border-collapse text-xs">
-            <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[10px] tracking-wider select-none">
-              <tr>
-                <th onClick={() => handleSort('Reseller Order #')} className="p-3 cursor-pointer hover:bg-slate-100 transition whitespace-nowrap">
-                  <div className="flex items-center space-x-1">
-                    <span>Order #</span>
-                    <span>{sortConfig.key === 'Reseller Order #' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : '↕'}</span>
-                  </div>
-                </th>
-                <th onClick={() => handleSort('Reseller Order Date')} className="p-3 cursor-pointer hover:bg-slate-100 transition whitespace-nowrap">
-                  <div className="flex items-center space-x-1">
-                    <span>Order Date</span>
-                    <span>{sortConfig.key === 'Reseller Order Date' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : '↕'}</span>
-                  </div>
-                </th>
-                <th onClick={() => handleSort('Reseller Order Item')} className="p-3 cursor-pointer hover:bg-slate-100 transition whitespace-nowrap">
-                  <div className="flex items-center space-x-1">
-                    <span>Order Item</span>
-                    <span>{sortConfig.key === 'Reseller Order Item' ? (sortConfig.direction === 'asc' ? '▲' : '▼') : '↕'}</span>
-                  </div>
-                </th>
-              </tr>
-            </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {loading ? (
                 <tr>
