@@ -41,20 +41,23 @@ export default function MainDashboard({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const monthOptions = [
-    'All',
-    'Oct 2026',
-    'Sep 2026',
-    'Aug 2026',
-    'Jul 2026',
-    'Jun 2026',
-    'Apr 2026',
-    'Mar 2026',
-    'Feb 2026',
-    'Jan 2026',
-    'Dec 2025',
-    'Nov 2025'
-  ]
+  // Dynamic Sales Month Generator: Nov 2026 down to Dec 2025
+  const generateSalesMonths = () => {
+    const months = ['All']
+    let currentDate = new Date(2026, 10, 1) // November 2026
+    const endDate = new Date(2025, 11, 1)   // December 2025
+
+    while (currentDate >= endDate) {
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+      const mStr = monthNames[currentDate.getMonth()]
+      const yStr = currentDate.getFullYear()
+      months.push(`${mStr} ${yStr}`)
+      currentDate.setMonth(currentDate.getMonth() - 1)
+    }
+    return months
+  }
+
+  const monthOptions = generateSalesMonths()
 
   return (
     <div className="space-y-4">
@@ -245,15 +248,15 @@ export default function MainDashboard({
         </h3>
         <ul className="space-y-2 text-xs text-slate-700 font-medium">
           <li className="flex items-start gap-2">
-            <span className={`${activeThemeObj.textPrimary} font-bold`}>•</span>
+            <span className={`${activeThemeObj.textPrimary} font-bold`}>*</span>
             <span>Top-selling product this month is <strong className="text-slate-900">{topProductCurrentMonth}</strong> ({maxCountCurrentMonth} orders recorded).</span>
           </li>
           <li className="flex items-start gap-2">
-            <span className="text-amber-500 font-bold">•</span>
+            <span className="text-amber-500 font-bold">*</span>
             <span>{agingInProgressCount > 0 ? `${agingInProgressCount} order(s) in progress have been sitting for 7 days or more, please check.` : 'All in progress orders are currently within normal processing timeframe.'}</span>
           </li>
           <li className="flex items-start gap-2">
-            <span className="text-emerald-600 font-bold">•</span>
+            <span className="text-emerald-600 font-bold">*</span>
             <span>Your team has completed and shipped a total of <strong className="text-slate-900">{currentMonthCompletedShippedCount} orders</strong> this month.</span>
           </li>
         </ul>

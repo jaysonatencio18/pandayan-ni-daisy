@@ -99,7 +99,7 @@ export default function App({ user, onLogout }) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   
   // Sales Month Filter State for Dashboard
-  const [selectedSalesMonth, setSelectedSalesMonth] = useState('Oct 2026')
+  const [selectedSalesMonth, setSelectedSalesMonth] = useState('Nov 2026')
   
   const getUserDisplayName = () => {
     if (!user) return 'User'
@@ -563,37 +563,18 @@ export default function App({ user, onLogout }) {
     return Math.max(0, balance)
   }
 
-  // Robust helper to check if an order matches the selected sales month
+  // Robust helper to check if an order matches the selected sales month using Date Shipped
   const matchesSelectedMonth = (o) => {
     if (selectedSalesMonth === 'All') return true
     
-    // Look across any field containing 'date' or 'ship'
-    const dateHeaders = Object.keys(o).filter(h => {
-      const lower = h.toLowerCase()
-      return lower.includes('date') || lower.includes('ship') || lower.includes('order')
-    })
-
     let rawDateStr = ''
-    for (let dh of dateHeaders) {
-      const val = o[dh]
-      if (val && val.toString().trim() !== '') {
-        if (!isNaN(Date.parse(val)) || val.toString().includes('/') || val.toString().includes('-')) {
-          rawDateStr = val.toString().trim()
-          break
-        }
-      }
-    }
+    const shipKey = Object.keys(o).find(h => h.toLowerCase().includes('shipped') || h.toLowerCase().includes('date shipped'))
+    const orderKey = Object.keys(o).find(h => h.toLowerCase().includes('date order') || h.toLowerCase() === 'date')
 
-    if (!rawDateStr) {
-      for (let key of Object.keys(o)) {
-        const val = o[key]
-        if (val && (val.toString().includes('/') || val.toString().includes('-'))) {
-          if (!isNaN(Date.parse(val))) {
-            rawDateStr = val.toString().trim()
-            break
-          }
-        }
-      }
+    if (shipKey && o[shipKey] && o[shipKey].toString().trim() !== '' && o[shipKey].toString().trim().toLowerCase() !== 'not specified') {
+      rawDateStr = o[shipKey].toString().trim()
+    } else if (orderKey && o[orderKey] && o[orderKey].toString().trim() !== '' && o[orderKey].toString().trim().toLowerCase() !== 'not specified') {
+      rawDateStr = o[orderKey].toString().trim()
     }
 
     if (!rawDateStr) return false
