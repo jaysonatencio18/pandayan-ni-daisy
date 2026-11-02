@@ -98,6 +98,9 @@ export default function App({ user, onLogout }) {
   const [greeting, setGreeting] = useState('Good day')
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   
+  // Sales Month Filter State for Dashboard
+  const [selectedSalesMonth, setSelectedSalesMonth] = useState('Oct 2026')
+  
   const getUserDisplayName = () => {
     if (!user) return 'User'
     const metadata = user.user_metadata || {}
@@ -528,13 +531,6 @@ export default function App({ user, onLogout }) {
     }).length
   }
 
-  const completedCount = getStatusCount('Fully Paid')
-  const shippedCount = getStatusCount('Shipped Out')
-  const inProgressCount = getStatusCount('In Progress')
-  const pendingCount = getStatusCount('Pending')
-  const onHoldCount = getStatusCount('On Hold')
-  const cancelledCount = getStatusCount('Cancelled')
-
   // Helper to extract numerical values from keys (Strictly excludes original_payment)
   const getOrderVal = (o, predicate) => {
     const foundKey = Object.keys(o).find(k => {
@@ -567,8 +563,83 @@ export default function App({ user, onLogout }) {
     return Math.max(0, balance)
   }
 
-  // Count active orders (excluding Cancelled and Returned)
-  const totalSalesOrdersCount = completedCount + shippedCount + inProgressCount + pendingCount + onHoldCount
+  // Robust helper to check if an order matches the selected sales month
+  const matchesSelectedMonth = (o) => {
+    if (selectedSalesMonth === 'All') return true
+    
+    // Look across any field containing 'date' or 'ship'
+    const dateHeaders = Object.keys(o).filter(h => {
+      const lower = h.toLowerCase()
+      return lower.includes('date') || lower.includes('ship') || lower.includes('order')
+    })
+
+    let rawDateStr = ''
+    for (let dh of dateHeaders) {
+      const val = o[dh]
+      if (val && val.toString().trim() !== '') {
+        if (!isNaN(Date.parse(val)) || val.toString().includes('/') || val.toString().includes('-')) {
+          rawDateStr = val.toString().trim()
+          break
+        }
+      }
+    }
+
+    if (!rawDateStr) {
+      for (let key of Object.keys(o)) {
+        const val = o[key]
+        if (val && (val.toString().includes('/') || val.toString().includes('-'))) {
+          if (!isNaN(Date.parse(val))) {
+            rawDateStr = val.toString().trim()
+            break
+          }
+        }
+      }
+    }
+
+    if (!rawDateStr) return false
+
+    const orderDate = new Date(rawDateStr)
+    if (isNaN(orderDate.getTime())) return false
+
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    const itemMonthStr = monthNames[orderDate.getMonth()]
+    const itemYearStr = orderDate.getFullYear().toString()
+    const itemFormatted = `${itemMonthStr} ${itemYearStr}`
+
+    return itemFormatted === selectedSalesMonth
+  }
+
+  // Global counts for active/open workflows (unaffected by month dropdown)
+  const shippedCount = getStatusCount('Shipped Out')
+  const inProgressCount = getStatusCount('In Progress')
+  const pendingCount = getStatusCount('Pending')
+  const onHoldCount = getStatusCount('On Hold')
+
+  // Month-filtered counts for Completed and Cancelled/Returned
+  const completedCount = orders.filter(o => {
+    const statusEntry = Object.entries(o).find(([k]) => k.toLowerCase().includes('status'))
+    if (!statusEntry) return false
+    const val = statusEntry[1].trim().toLowerCase().replace(/\s+/g, '')
+    if (val !== 'fullypaid') return false
+    return matchesSelectedMonth(o)
+  }).length
+
+  const cancelledCount = orders.filter(o => {
+    const statusEntry = Object.entries(o).find(([k]) => k.toLowerCase().includes('status'))
+    if (!statusEntry) return false
+    const val = statusEntry[1].trim().toLowerCase().replace(/\s+/g, '')
+    if (val !== 'cancelled' && val !== 'returned') return false
+    return matchesSelectedMonth(o)
+  }).length
+
+  // Count active orders filtered by selected month
+  const totalSalesOrdersCount = orders.filter(o => {
+    const statusEntry = Object.entries(o).find(([k]) => k.toLowerCase().includes('status'))
+    const statusVal = statusEntry ? statusEntry[1].trim().toLowerCase() : ''
+    if (statusVal.includes('cancel') || statusVal.includes('returned')) return false
+
+    return matchesSelectedMonth(o)
+  }).length
 
   // Count active orders with outstanding balance
   const awaitingPaymentOrdersCount = orders.filter(o => {
@@ -579,12 +650,14 @@ export default function App({ user, onLogout }) {
   }).length
 
   // ==========================================
-  // FORMULA 1: Total Sales = downpayment + payment (excluding original_payment, returned, cancelled)
+  // FORMULA 1: Total Sales = downpayment + payment (filtered by selectedSalesMonth, excluding returned, cancelled)
   // ==========================================
   const totalSalesAmount = orders.reduce((sum, o) => {
     const statusEntry = Object.entries(o).find(([k]) => k.toLowerCase().includes('status'))
     const statusVal = statusEntry ? statusEntry[1].trim().toLowerCase() : ''
     if (statusVal.includes('cancel') || statusVal.includes('returned')) return sum
+
+    if (!matchesSelectedMonth(o)) return sum
 
     const downpayment = getOrderVal(o, k => k.includes('downpayment') || k.includes('down payment'))
     const payment = getOrderVal(o, k => k.includes('payment') && !k.includes('down') && !k.includes('mode'))
@@ -592,7 +665,7 @@ export default function App({ user, onLogout }) {
   }, 0)
 
   // ==========================================
-  // FORMULA 2: Awaiting Payment = sum of all balance column (all status except returned and cancelled)
+  // FORMULA 2: Awaiting Payment = sum of all balance column (all status except returned and cancelled) - UNAFFECTED by sales filter
   // ==========================================
   const pendingBalanceAmount = orders.reduce((sum, o) => {
     const statusEntry = Object.entries(o).find(([k]) => k.toLowerCase().includes('status'))
@@ -616,19 +689,7 @@ export default function App({ user, onLogout }) {
     const statusVal = statusEntry ? statusEntry[1].trim().toLowerCase() : ''
     const isCompletedOrShipped = statusVal.includes('fully paid') || statusVal.includes('shipped')
 
-    let rawDateStr = ''
-    for (let dh of dateHeaders) {
-      if (o[dh] && o[dh].toString().trim() !== '') {
-        rawDateStr = o[dh].toString().trim()
-        break
-      }
-    }
-
-    const lowerDate = rawDateStr.toLowerCase()
-    const isOctober = lowerDate.includes('/10/') || lowerDate.includes('-10-') || lowerDate.includes('oct') || lowerDate.startsWith('10/')
-    const is2026 = lowerDate.includes('2026') || lowerDate.endsWith('/26') || lowerDate.endsWith('-26') || rawDateStr === ''
-
-    if ((isOctober && is2026) || (rawDateStr === '' && isCompletedOrShipped)) {
+    if (matchesSelectedMonth(o)) {
       if (isCompletedOrShipped) {
         currentMonthCompletedShippedCount++
       }
@@ -641,24 +702,6 @@ export default function App({ user, onLogout }) {
       })
     }
   })
-
-  if (Object.values(productCountsCurrentMonth).every(c => c === 0)) {
-    orders.forEach(o => {
-      const statusEntry = Object.entries(o).find(([k]) => k.toLowerCase().includes('status'))
-      const statusVal = statusEntry ? statusEntry[1].trim().toLowerCase() : ''
-      if (statusVal.includes('fully paid') || statusVal.includes('shipped')) {
-        const orderDesc = (o[orderHeader] || '').trim().toLowerCase()
-        officialProducts.forEach(prod => {
-          if (orderDesc.includes(prod.toLowerCase())) {
-            productCountsCurrentMonth[prod] = (productCountsCurrentMonth[prod] || 0) + 1
-          }
-        })
-      }
-    })
-    if (currentMonthCompletedShippedCount === 0) {
-      currentMonthCompletedShippedCount = completedCount + shippedCount
-    }
-  }
 
   let topProductCurrentMonth = 'None yet'
   let maxCountCurrentMonth = 0
@@ -1001,6 +1044,8 @@ export default function App({ user, onLogout }) {
             maxCountCurrentMonth={maxCountCurrentMonth}
             agingInProgressCount={agingInProgressCount}
             currentMonthCompletedShippedCount={currentMonthCompletedShippedCount}
+            selectedSalesMonth={selectedSalesMonth}
+            setSelectedSalesMonth={setSelectedSalesMonth}
           />
         )}
 

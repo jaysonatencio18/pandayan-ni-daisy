@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 
 export default function MainDashboard({
   greeting,
@@ -24,11 +24,42 @@ export default function MainDashboard({
   topProductCurrentMonth,
   maxCountCurrentMonth,
   agingInProgressCount,
-  currentMonthCompletedShippedCount
+  currentMonthCompletedShippedCount,
+  selectedSalesMonth,
+  setSelectedSalesMonth
 }) {
+  const [isSalesMonthDropdownOpen, setIsSalesMonthDropdownOpen] = useState(false)
+  const dropdownRef = useRef(null)
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsSalesMonthDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const monthOptions = [
+    'All',
+    'Oct 2026',
+    'Sep 2026',
+    'Aug 2026',
+    'Jul 2026',
+    'Jun 2026',
+    'Apr 2026',
+    'Mar 2026',
+    'Feb 2026',
+    'Jan 2026',
+    'Dec 2025',
+    'Nov 2025'
+  ]
+
   return (
     <div className="space-y-4">
-      <div className="bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-sm">
+      {/* Greeting Banner Card with Professional Dropdown Arrow on Far Right */}
+      <div className="bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-sm relative flex items-center justify-between">
         <div>
           <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-2">
             <span>{greeting}, {displayName}!</span>
@@ -37,6 +68,45 @@ export default function MainDashboard({
           <p className="text-xs text-slate-500 mt-0.5">
             Here's the operation summary of your pandayan business.
           </p>
+        </div>
+
+        {/* Professional Dropdown Arrow (No Text) */}
+        <div className="relative" ref={dropdownRef}>
+          <button
+            onClick={() => setIsSalesMonthDropdownOpen(!isSalesMonthDropdownOpen)}
+            className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 transition shadow-xs flex items-center justify-center"
+            title={`Sales Month: ${selectedSalesMonth}`}
+          >
+            <svg className={`w-4 h-4 text-slate-600 transition-transform ${isSalesMonthDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {/* Floating Dropdown Menu */}
+          {isSalesMonthDropdownOpen && (
+            <div className="absolute right-0 top-full mt-2 w-40 bg-white border border-slate-200 rounded-2xl shadow-xl z-30 p-2 space-y-1 animate-fade-in">
+              <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-indigo-600">
+                Filter Sales Month
+              </p>
+              <div className="h-px bg-slate-100 my-1" />
+              <div className="max-h-56 overflow-y-auto space-y-0.5">
+                {monthOptions.map((month) => (
+                  <button
+                    key={month}
+                    onClick={() => {
+                      setSelectedSalesMonth(month)
+                      setIsSalesMonthDropdownOpen(false)
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold transition ${
+                      selectedSalesMonth === month ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    {month}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -57,7 +127,7 @@ export default function MainDashboard({
               <div>
                 <div className="flex items-center justify-between gap-1">
                   <span className="text-[10px] sm:text-[12px] font-bold uppercase tracking-wider text-white/90 truncate leading-none">
-                    TOTAL SALES
+                    TOTAL SALES ({selectedSalesMonth})
                   </span>
                   <button
                     onClick={toggleTotalSales}
